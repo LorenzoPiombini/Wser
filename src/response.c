@@ -5,7 +5,7 @@
 #include "response.h"
 
 static int set_up_headers(struct Header *headers, int status, size_t body_size);
-static void set_status_and_phrase(struct Header *headers, int status);
+static void set_status_and_phrase(struct Header *headers, uint16_t status);
 static char *create_response_message(struct Response *res, int status, struct Content *cont, struct Request *req);
 static int parse_body(struct Content *cont, struct Response *res);
 static int not_found_header(char *header, struct Request *req, struct Response *res);
@@ -44,7 +44,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 	}
 
 	if(strncmp(res->headers.protocol_vs,DEFAULT,STD_LEN_PTC) == 0){
-		if(snprintf(h,1024,"%s %d %s\r\n"\
+		if(snprintf(h,1024,"%s %u %s\r\n"\
 					"%s: %s\r\n"\
 					"%s: %s\r\n"\
 					"%s: %ld\r\n"\
@@ -58,7 +58,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 			return NULL;
 		}
 	}else if(strncmp(res->headers.protocol_vs,HTTP2,STD_LEN_HTTP2) == 0){
-		if(snprintf(h,1024,"%s %d %s\r\n"\
+		if(snprintf(h,1024,"%s %u %s\r\n"\
 					"%s: %s\r\n"\
 					"%s: %ld\r\n"\
 					"%s: %s\r\n"\
@@ -76,7 +76,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 
 static int set_up_headers(struct Header *headers, int status, size_t body_size)
 {
-	set_status_and_phrase(headers,status);
+	set_status_and_phrase(headers,(uint16_t)status);
 	strncpy(headers->protocol_vs,STD_PTC,STD_LEN_PTC);
 	char *date = date_formatter();
 	if(!date) return -1;
@@ -91,7 +91,7 @@ static int set_up_headers(struct Header *headers, int status, size_t body_size)
 	return 0;
 }
 
-static void set_status_and_phrase(struct Header *headers, int status)
+static void set_status_and_phrase(struct Header *headers, uint16_t status)
 {
 	switch(status){
 	case 100:

@@ -2,7 +2,8 @@
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
-#include "network.h"
+#include <unistd.h> 
+#include "network.h" 
 #include "load.h"
 #include "request.h"
 #include "monitor.h"
@@ -13,8 +14,9 @@
 
 char prog[] = "wser";
 
-int main(void)
+int main(int argc, char **argv)
 {	
+	if(argc > 1) goto client; 
 	if(check_default_setting() == -1){
 		fprintf(stderr,"(%s): cannot start the server, configuration issue.",prog);
 		return -1;
@@ -205,5 +207,20 @@ int main(void)
 	}
 
 	stop_listening(con);
+	return 0;
+
+client:
+
+	int option = 0;
+	while((option = getopt(argc,argv,"g:")) != -1){
+		switch(option){
+		case 'g':
+			get(optarg);
+			break;
+		default:
+			break;
+		}
+	}
+
 	return 0;
 }

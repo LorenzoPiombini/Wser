@@ -28,9 +28,11 @@ struct Request{
 	char host[MIN_HEAD_FIELD];
 	char resource[STD_LT_RESOURCE];
 	char cont_type[MIN_HEAD_FIELD];
+	char transfer_encoding[MIN_HEAD_FIELD];
 };
 
 int handle_request(struct Request *req);
 int set_up_request(ssize_t len,struct Request *req);
+int find_headers_end(char *buffer, size_t size);
 void clear_request(struct Request *req);
 #endif

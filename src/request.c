@@ -6,7 +6,6 @@
 
 static char prog[] = "wser";
 static int get_headers_block(struct Request *req);
-static int find_headers_end(char *buffer, size_t size);
 static int parse_header(char *head, struct Request *req);
 static int get_method(char *method);
 static int map_content_type(struct Request *req);
@@ -74,6 +73,15 @@ static int parse_header(char *head, struct Request *req)
 				continue;
 			}
 			
+			if((b = strstr(t,"Transfer-Encoding:"))){
+				b += strlen("Transfer-Encoding:");
+				char *e = strstr(b,"\r\n");
+				assert(e != NULL);
+				strncpy(req->transfer_encoding,b, e - b);
+				*crlf = ' ';
+				start = end + 2;
+				continue;
+			}
 			*crlf = ' ';
 			start = end + 2;
 			continue;
@@ -104,7 +112,7 @@ static int parse_header(char *head, struct Request *req)
 	return 0;
 }
 
-static int find_headers_end(char *buffer, size_t size)
+int find_headers_end(char *buffer, size_t size)
 {
 	char *start = buffer;
 	int c = 0;

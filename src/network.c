@@ -16,6 +16,7 @@
 static char prog[] = "wser";
 static int parse_URL(char *URL, struct Url *url);
 #define LISTEN_BACKLOG 50
+#define MAX_BUF_SIZE 2048
 
 int listen_port_80(uint16_t *port)
 {
@@ -251,14 +252,22 @@ int get(char *URL)
 	}
 
 	ssize_t bread = 0;
-	char buff[1024] = {0};
-	if((bread = read(sock_fd,buff,1024)) == -1){
+	char buff[MAX_BUF_SIZE] = {0};
+	if((bread = read(sock_fd,buff,MAX_BUF_SIZE)) == -1){
 		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,URL);
 		close(sock_fd);
 		return -1;
 	}
 
-	fprintf(stderr,"\n%s\n",buff);
+	int index = find_headers_end(buff, (size_t)bread);
+
+	/* === PROCESS THE RESPONSE HEADER
+	 *
+	 * if transfer encoding then look for the number and keep reading the data 
+	 * === DO NOT PRINT THE HEADER ===
+	 * */
+	
+	fprintf(stderr,"\n%s\n",&buff[index]);
 	close(sock_fd);
 	return 0;
 }

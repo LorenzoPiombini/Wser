@@ -18,6 +18,7 @@ int listen_port_80(uint16_t *port);
 int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);
 int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req);
+int get(char *URL);
 void stop_listening(int sock_fd);
 
 #endif

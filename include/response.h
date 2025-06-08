@@ -12,12 +12,13 @@
 #define STD_HD_L 1024
 
 struct Header{
-	int status;
+	uint16_t status;
 	char protocol_vs[STD_LEN_PTC];
-	char reason_phrase[50];
-	char date[50];
+	char reason_phrase[MIN_HEAD_FIELD];
+	char date[MIN_HEAD_FIELD];
 	uint32_t content_lenght;
-	char connection[50];
+	char connection[MIN_HEAD_FIELD];
+	char transfer_encoding[MIN_HEAD_FIELD];
 };
 
 struct Body {
