@@ -263,7 +263,7 @@ int get(char *URL)
 
 	/* === PROCESS THE RESPONSE HEADER
 	 *
-	 * if transfer encoding then look for the number and keep reading the data 
+	 * TODO: if transfer encoding then look for the number and keep reading the data 
 	 * === DO NOT PRINT THE HEADER ===
 	 * */
 	

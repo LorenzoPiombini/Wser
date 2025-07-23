@@ -10,6 +10,7 @@
 #define STD_LEN_HTTP2 7 
 #define STD_BDY_CNT 8192
 #define STD_HD_L 1024
+#define BAD_REQ_MES "{\"error\": \"Bad request\",\"message\": \"Request body could not be read properly.\"}"
 
 struct Header{
 	uint16_t status;

@@ -191,7 +191,7 @@ static int map_content_type(struct Request *req)
 		return 0;
 	} 
 	if(strstr(req->resource,".js")) {
-		strncpy(req->cont_type,"text/js",MIN_HEAD_FIELD);
+		strncpy(req->cont_type,"text/javascript",MIN_HEAD_FIELD);
 		return 0;
 	} 
 	if(strstr(req->resource,".jpeg")) {
@@ -200,12 +200,12 @@ static int map_content_type(struct Request *req)
 	} 
 
 	if(strstr(req->resource,".png")) {
-		strncpy(req->cont_type,"text/html",MIN_HEAD_FIELD);
+		strncpy(req->cont_type,"image/png",MIN_HEAD_FIELD);
 		return 0;
 	} 
 
 	if(strstr(req->resource,".json")) {
-		strncpy(req->cont_type,"text/html",MIN_HEAD_FIELD);
+		strncpy(req->cont_type,"application/json",MIN_HEAD_FIELD);
 		return 0;
 	} 
 	

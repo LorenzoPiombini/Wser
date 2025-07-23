@@ -60,7 +60,20 @@ int main(int argc, char **argv)
 				/* send response */
 				if(r == BAD_REQ) {
 					/*send a bed request response*/
+					if(generate_response(&res,400,NULL,&req) == -1) break;
 					
+					int w = 0;
+					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
+					if(w == EAGAIN || w == EWOULDBLOCK) {
+						clear_request(&req);
+						continue;
+					}
+
+					clear_request(&req);
+					clear_response(&res);
+
+					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
+					continue;
 				}
 				
 				struct Content cont= {0};
@@ -85,7 +98,9 @@ int main(int argc, char **argv)
 						clear_response(&res);
 						continue;
 					}
-
+					break;
+				case POST:
+					/*you can interface here with thw DB*/
 					break;
 				default:
 					/*send a bed request response*/
@@ -176,7 +191,7 @@ int main(int argc, char **argv)
 
 
 					printf("after writing to client.\n");
-					if(w == EAGAIN || w == EWOULDBLOCK) 	continue;
+					if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
 					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
 
@@ -184,7 +199,6 @@ int main(int argc, char **argv)
 						fprintf(stdout,"%s\n",req.d_req);
 					else
 						fprintf(stdout,"%s\n",req.req);
-
 
 					clear_response(&res);
 					clear_request(&req);
@@ -201,7 +215,6 @@ int main(int argc, char **argv)
 					clear_request(&req);
 					clear_response(&res);
 				}
-
 			}
 		}
 	}

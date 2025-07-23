@@ -10,8 +10,8 @@ extern char dir[PATH_MAX];
 #define INDEX_FILE_no_su "www/index.html"
 #define INDEX_FILE "/www/index.html"
 
-#define INDEX_CNT "<!doctype html>\n<html>\n<head>\n<title>Wser</title>\n</head>\n\t<body>\n<h1>Wser home</h1>\n<h3>plug & play server</h3>\n\t</body>\n</html>\n" 
-#define NOT_FOUND "<!doctype html>\n<html>\n<head>\n<title>Wser</title>\n</head>\n\t<body>\n<h1>NOT FOUND</h1>\n<h3>------</h3>\n\t</body>\n</html>\n" 
+#define INDEX_CNT "<!doctype html>\n<html>\n<head>\n<title>Wser</title>\n</head>\n\t<body>\n\t\t<h1>Wser home</h1>\n\t\t<h3>plug & play server</h3>\n\t</body>\n</html>\n" 
+#define NOT_FOUND "<!doctype html>\n<html>\n<head>\n<title>Wser</title>\n</head>\n\t<body>\n\t\t<h1>NOT FOUND</h1>\n\t\t<h3>------</h3>\n\t\t</body>\n</html>\n" 
 
 int check_default_setting();
 #endif
