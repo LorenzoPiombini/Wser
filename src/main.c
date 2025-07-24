@@ -100,6 +100,8 @@ int main(int argc, char **argv)
 					}
 					break;
 				case POST:
+				case DELETE:
+				case PUT:
 					/*you can interface here with thw DB*/
 					break;
 				default:
@@ -139,7 +141,6 @@ int main(int argc, char **argv)
 
 					if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
 					if(r == EAGAIN || r == EWOULDBLOCK) continue;
-
 
 					if(r == BAD_REQ) {
 						/*send a bed request response*/

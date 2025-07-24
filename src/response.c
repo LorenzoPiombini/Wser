@@ -311,13 +311,16 @@ static void set_status_and_phrase(struct Header *headers, uint16_t status)
 static int parse_body(struct Content *cont, struct Response *res)
 {
 	if(cont->size < STD_BDY_CNT){
-		strncpy(res->body.content,cont->cnt_st,cont->size);
+		if(cont->cnt_dy)
+			strncpy(res->body.content,cont->cnt_dy,cont->size);
+		else
+			strncpy(res->body.content,cont->cnt_st,cont->size);
+		
 		res->body.size = cont->size;
 		return 0;
 	}
 
 	return 0;
-
 }
 static int not_found_header(char *header, struct Request *req, struct Response *res)
 {

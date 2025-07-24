@@ -20,6 +20,11 @@ struct Header{
 	uint32_t content_lenght;
 	char connection[MIN_HEAD_FIELD];
 	char transfer_encoding[MIN_HEAD_FIELD];
+	/*fields for OPTIONS responses*/
+	char access_control_allow_origin[MIN_HEAD_FIELD];
+	char access_control_allow_methods[MIN_HEAD_FIELD];
+	char access_control_allow_headers[MIN_HEAD_FIELD];
+	uint32_t access-control-max-age; 
 };
 
 struct Body {
