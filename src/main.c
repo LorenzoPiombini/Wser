@@ -99,11 +99,63 @@ int main(int argc, char **argv)
 						continue;
 					}
 					break;
-				case POST:
+				case OPTIONS:
+				{
+					size_t s = strlen(req.origin);
+					if(s != strlen(ORIGIN_DEF)) goto bad_request;
+
+					if(strncmp(req.origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0){
+						
+						bad_request:
+						/*send a bed request response*/
+						if(generate_response(&res,400,NULL,&req) == -1) break;
+
+						int w = 0;
+						if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK) {
+							clear_request(&req);
+							continue;
+						}
+
+						clear_request(&req);
+						clear_response(&res);
+
+						if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
+						continue;
+					}
+					/*send a response to the options request*/
+					if(generate_response(&res,200,NULL,&req) == -1) break;
+
+					int w = 0;
+					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
+					if(w == EAGAIN || w == EWOULDBLOCK) {
+						clear_request(&req);
+						continue;
+					}
+
+					clear_request(&req);
+					clear_response(&res);
+
+					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
+					continue;
+				}
 				case DELETE:
+					if(generate_response(&res,400,NULL,&req) == -1) break;
+
+					int w = 0;
+					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
+					if(w == EAGAIN || w == EWOULDBLOCK) {
+						clear_request(&req);
+						continue;
+					}
+
+					clear_request(&req);
+					clear_response(&res);
+
+					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
+					continue;
 				case PUT:
-					/*you can interface here with thw DB*/
-					break;
+				case POST:
 				default:
 					/*send a bed request response*/
 					break;

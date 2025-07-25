@@ -57,27 +57,39 @@ static int parse_header(char *head, struct Request *req)
 	while((crlf = strstr(&head[start],"\r"))){
 		if (start > 0){
 			int end = crlf - head;
-
-			char t[end+1];
-			memset(t,0,end+1);
-			strncpy(t,&head[start],end);
+			size_t s = end - start;
+			char t[s+1];
+			memset(t,0,s+1);
+			strncpy(t,&head[start],s);
 
 			char *b = NULL;
 			if((b = strstr(t,"Host:"))){	
 				b += strlen("Host: ");
-				char *e = strstr(b,"\r\n");
-				assert(e != NULL);
-				strncpy(req->host,b,e - b);
+				strncpy(req->host,b,strlen(b));
 				*crlf = ' ';
 				start = end + 2;
 				continue;
 			}
 			
 			if((b = strstr(t,"Transfer-Encoding:"))){
-				b += strlen("Transfer-Encoding:");
-				char *e = strstr(b,"\r\n");
-				assert(e != NULL);
-				strncpy(req->transfer_encoding,b, e - b);
+				b += strlen("Transfer-Encoding: ");
+				strncpy(req->transfer_encoding,b,strlen(b));
+				*crlf = ' ';
+				start = end + 2;
+				continue;
+			}
+
+			if((b = strstr(t,"Access-Control-Request-Method:"))){
+				b += strlen("Access-Control-Request-Method: ");
+				strncpy(req->access_control_request_method,b,strlen(b));
+				*crlf = ' ';
+				start = end + 2;
+				continue;
+			}
+
+			if((b = strstr(t,"Origin:"))){
+				b += strlen("Origin: ");
+				strncpy(req->origin,b,strlen(b));
 				*crlf = ' ';
 				start = end + 2;
 				continue;

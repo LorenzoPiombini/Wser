@@ -8,6 +8,7 @@
 #define STD_LT_RESOURCE 550
 #define DEFAULT "HTTP/1.1"
 #define HTTP2 "HTTP/2"
+#define ORIGIN_DEF "http://artech:8080"
 
 enum method{
 	GET,

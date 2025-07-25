@@ -11,6 +11,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 static int parse_body(struct Content *cont, struct Response *res);
 static int not_found_header(char *header, struct Request *req, struct Response *res);
 static int bad_request_header(char *header);
+static int options_response_header(char *header,int status);
 static char *month_parser(int month);
 static char *day_parser(int day);
 static char *second_parser(int second);
@@ -50,6 +51,12 @@ static char *create_response_message(struct Response *res, int status, struct Co
 		
 		return h;
 	}
+	if(req->method == OPTIONS){
+		if(options_response_header(h,status) == -1) return NULL;
+
+		return h;
+	}
+
 	if(strncmp(res->headers.protocol_vs,DEFAULT,STD_LEN_PTC) == 0){
 		if(snprintf(h,1024,"%s %u %s\r\n"\
 					"%s: %s\r\n"\
@@ -344,6 +351,25 @@ static int bad_request_header(char *header)
 				"Content-Type: %s\r\n"\
 				"Content-lenght: %ld\r\n\r\n%s","HTTP/1.1", 400, "Bad request",
 				"application/json",strlen(BAD_REQ_MES),BAD_REQ_MES) == -1){
+		fprintf(stderr,"(%s): cannot form BAD RESPONSE.",prog);
+		return -1;
+	}
+	return 0;
+}
+
+
+static int options_response_header(char *header, int status)
+{
+	char *mess = NULL;
+	if(status == 200) mess = "OK";
+	if(snprintf(header,1024,"%s %d %s\r\n"\
+				"Access-Control-Allow-Origin: %s\r\n"\
+				"Access-Control-Allow-Methods: %s, %s\r\n"\
+				"Access-Control-Allow-Headers: %s\r\n"\
+				"Access-Control-Max-Age: %u\r\n",
+				"HTTP/1.1", status,mess,
+				ORIGIN_DEF,"GET","OPTIONS",
+				"Content-type",SECONDS_IN_A_DAY) == -1){
 		fprintf(stderr,"(%s): cannot form BAD RESPONSE.",prog);
 		return -1;
 	}
