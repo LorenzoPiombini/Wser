@@ -105,7 +105,7 @@ int write_cli_sock(int cli_sock, struct Response *res)
 		}
 	}else{
 		errno = 0;
-		if(write(cli_sock,buff,strlen(buff)) == -1){
+		if(write(cli_sock,buff,buff_l) == -1){
 			if(errno == EAGAIN || errno == EWOULDBLOCK){	
 				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) return -1;
 				return errno;

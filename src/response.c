@@ -326,6 +326,12 @@ static int parse_body(struct Content *cont, struct Response *res)
 		res->body.size = cont->size;
 		return 0;
 	}
+	
+	res->body.d_cont = calloc(cont->size+1,sizeof(char));
+	if(!res->body.d_cont) return -1;
+
+	strncpy(res->body.d_cont,cont->cnt_dy,cont->size);
+	res->body.size = cont->size;
 
 	return 0;
 }
