@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -13,6 +14,8 @@
 
 
 char prog[] = "wser";
+
+#define USE_FORK 1
 
 int main(int argc, char **argv)
 {	
@@ -43,13 +46,15 @@ int main(int argc, char **argv)
 
 	int cli_sock = -1;
 
-	struct Response res = {0};
+	struct Response res;
+	memset(&res,0,sizeof(struct Response));
 	for(;;){
 		if((nfds = monitor_events()) == -1) break;	
 		if(nfds == EINTR) continue;
 		for(int i = 0; i < nfds; i++){
 
-			struct Request req = {0};
+			struct Request req;
+			memset(&req,0,sizeof(struct Request));
 			req.method = -1;
 			if(events[i].data.fd == con){
 				int r = 0;
@@ -57,136 +62,314 @@ int main(int argc, char **argv)
 
 				if(r == EAGAIN || r == EWOULDBLOCK) continue;
 					
-				/* send response */
-				if(r == BAD_REQ) {
-					/*send a bed request response*/
-					if(generate_response(&res,400,NULL,&req) == -1) break;
-					
-					int w = 0;
-					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-					if(w == EAGAIN || w == EWOULDBLOCK) {
-						clear_request(&req);
-						continue;
-					}
+#if USE_FORK
+				pid_t child = fork();
+				if(child == -1){
 
-					clear_request(&req);
-					clear_response(&res);
-
-					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
-					continue;
 				}
-				
-				struct Content cont= {0};
-				switch(req.method){
-				case GET:
-					/* Load content */	
-					if(load_resource(req.resource,&cont) == -1){
-						/*send not found response*/
-						if(generate_response(&res,404,NULL,&req) == -1) break;
+#else
 
-						int w = 0;
-						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-						if(w == EAGAIN || w == EWOULDBLOCK) {
-							clear_request(&req);
-							clear_content(&cont);
-							continue;
-						}
-
-						stop_listening(cli_sock);
-
-						clear_request(&req);
-						clear_response(&res);
-						continue;
-					}
-					break;
-				case OPTIONS:
-				{
-					size_t s = strlen(req.origin);
-					if(s != strlen(ORIGIN_DEF)) goto bad_request;
-
-					if(strncmp(req.origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0){
-						
-						bad_request:
+				pid_t child = 0;
+#endif
+	
+				if(child == 0){
+					/* send response */
+					if(r == BAD_REQ) {
 						/*send a bed request response*/
 						if(generate_response(&res,400,NULL,&req) == -1) break;
 
 						int w = 0;
-						if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-						if(w == EAGAIN || w == EWOULDBLOCK) {
-							clear_request(&req);
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+#if USE_FORK
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res) != -1)){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+							if(ws){
+								//clear_response(&res);
+								stop_listening(cli_sock);
+								exit(0);
+							}
+							//clear_response(&res);
+							stop_listening(cli_sock);
+							exit(1);
+
+#else
 							continue;
+#endif
 						}
+
+#if USE_FORK
 
 						clear_request(&req);
 						clear_response(&res);
-
-						if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
-						continue;
-					}
-					/*send a response to the options request*/
-					if(generate_response(&res,200,NULL,&req) == -1) break;
-
-					int w = 0;
-					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-					if(w == EAGAIN || w == EWOULDBLOCK) {
+						stop_listening(cli_sock);
+						exit(0);
+#else
+						remove_socket_from_monitor(cli_sock);
 						clear_request(&req);
+						clear_response(&res);
 						continue;
+#endif
 					}
 
-					clear_request(&req);
-					clear_response(&res);
+					struct Content cont;
+					memset(&cont,0,sizeof(struct Content));
+					switch(req.method){
+						case GET:
+							/* Load content */	
+							if(load_resource(req.resource,&cont) == -1){
+								/*send not found response*/
+								if(generate_response(&res,404,NULL,&req) == -1) break;
 
-					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
-					continue;
-				}
-				case DELETE:
-					if(generate_response(&res,400,NULL,&req) == -1) break;
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res)) != -1){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-					int w = 0;
-					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-					if(w == EAGAIN || w == EWOULDBLOCK) {
-						clear_request(&req);
-						continue;
+										ws = 1;
+										break;
+									}
+									if(ws){
+										if(remove_socket_from_monitor(cli_sock) == -1){
+											clear_request(&req);
+											clear_content(&cont);
+											exit(1);
+										}
+
+										clear_request(&req);
+										clear_content(&cont);
+										exit(0);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+#else
+									clear_request(&req);
+									clear_content(&cont);
+									remove_socket_from_monitor(cli_sock);
+									continue;
+#endif
+								}
+#if USE_FORK
+								stop_listening(cli_sock);
+								clear_request(&req);
+								clear_content(&cont);
+								exit(0);
+
+#else 
+								clear_request(&req);
+								clear_content(&cont);
+								remove_socket_from_monitor(cli_sock);
+								continue;
+#endif
+							}
+
+							/*send 200 response*/
+							if(generate_response(&res,OK,&cont,&req) == -1) {
+								clear_content(&cont);
+#if USE_FORK
+								exit(1);
+#endif
+							}
+
+							clear_content(&cont);
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+
+							if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+								if(ws){
+									stop_listening(cli_sock);
+									clear_request(&req);
+									clear_response(&res);
+									exit(0);
+								}
+								clear_request(&req);
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(1);
+#else
+								clear_request(&req);
+								remove_socket_from_monitor(cli_sock);
+								continue;
+#endif
+
+							}
+
+							if(req.d_req)
+								fprintf(stdout,"%s\n",req.d_req);
+							else
+								fprintf(stdout,"%s\n",req.req);
+
+							clear_request(&req);
+							clear_response(&res);
+#if USE_FORK 
+
+							stop_listening(cli_sock);
+							exit(0);
+#else
+							remove_socket_from_monitor(cli_sock);
+							break;
+#endif
+						case OPTIONS:
+							{
+								size_t s = strlen(req.origin);
+								if(s != strlen(ORIGIN_DEF)) goto bad_request;
+
+								if(strncmp(req.origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0){
+
+bad_request:
+									/*send a bed request response*/
+									if(generate_response(&res,400,NULL,&req) == -1) break;
+
+									int w = 0;
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK
+										uint8_t ws = 0;
+										while((w = write_cli_sock(cli_sock,&res)) != -1){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
+											ws = 1;
+											break;
+										}
+
+										if(ws){
+											stop_listening(cli_sock);
+											clear_request(&req);
+											exit(0);
+										}
+
+										stop_listening(cli_sock);
+										clear_request(&req);
+										exit(1);
+#else
+										remove_socket_from_monitor(cli_sock);
+										clear_request(&req);
+										continue;
+#endif
+								}
+
+
+								clear_request(&req);
+								clear_response(&res);
+#if USE_FORK
+								stop_listening(cli_sock);
+								exit(0);
+#else 
+								remove_socket_from_monitor(cli_sock);
+								continue;
+#endif
+
+							}
+
+							/*send a response to the options request*/
+							if(generate_response(&res,200,NULL,&req) == -1) break;
+
+							clear_request(&req);
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK)continue;
+
+									ws = 1;
+									break;
+								}
+								if(ws){
+									stop_listening(cli_sock);
+									clear_response(&res);
+									exit(0);
+								}
+#else
+								remove_socket_from_monitor(cli_sock);
+								continue;
+#endif
+							}
+
+							clear_response(&res);
+
+#if USE_FORK
+							stop_listening(cli_sock);
+							exit(0);
+#else
+							remove_socket_from_monitor(cli_sock);
+							continue;
+#endif
+						}
+					case DELETE:
+					case POST:
+					case PUT:
+					default:
+					{
+							if(generate_response(&res,400,NULL,&req) == -1) break;
+
+							clear_request(&req);
+							int w = 0;
+							if((w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+								if(ws){
+									stop_listening(cli_sock);
+									clear_request(&req);
+									exit(0);
+								}
+								clear_request(&req);
+								exit(1);
+#else
+								remove_socket_from_monitor(cli_sock);
+								clear_request(&req);
+								continue;
+#endif
+							}
+
+							clear_response(&res);
+
+#if USE_FORK
+							stop_listening(cli_sock);
+							exit(0);
+#else 
+							remove_socket_from_monitor(cli_sock);
+							break;
+#endif
 					}
-
-					clear_request(&req);
-					clear_response(&res);
-
-					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
-					continue;
-				case PUT:
-				case POST:
-				default:
-					/*send a bed request response*/
-					break;
+					}
 				}
-
-
-				/* send response*/
-				if(generate_response(&res,OK,&cont,&req) == -1) {
-
-				}
-
-				clear_content(&cont);
-				int w = 0;
-				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-
-				if(w == EAGAIN || w == EWOULDBLOCK) {
-					clear_request(&req);
-					continue;
-				}
-
-
-				if(req.d_req)
-					fprintf(stdout,"%s\n",req.d_req);
-				else
-					fprintf(stdout,"%s\n",req.req);
-
+				/* parent */
+				remove_socket_from_monitor(cli_sock);
 				stop_listening(cli_sock);
 				clear_request(&req);
-				clear_response(&res);
-			}else{
-				
+				continue;
+
+			}else{ /*SECOND BRANCH*/
+
 				int r = 0;
 				printf("sock nr %d\n",events[i].data.fd);
 				if(events[i].events == EPOLLIN) {
@@ -194,79 +377,164 @@ int main(int argc, char **argv)
 					if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
 					if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
-					if(r == BAD_REQ) {
-						/*send a bed request response*/
+#if USE_FORK 
+					pid_t child = fork();
+					if(child == -1){
+						continue;
 					}
+#else
+					pid_t child =0;
 
-					struct Content cont= {0};
-					switch(req.method){
-					case GET:
-						/* Load content */	
-						if(load_resource(req.resource,&cont) == -1){
-							printf("sending 404.\n");
-							/*send not found response*/
+#endif
+					if(child == 0){
 
-							if(generate_response(&res,404,NULL,&req) == -1) break;
+						if(r == BAD_REQ) {
+							/*send a bed request response*/
+#if USE_FORK
+							exit(1);
+#else
+							continue;
+#endif
+						}
 
-							
-							printf("header is \n%s\n",res.header_str);
-							int w = 0;
-							if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-							if(w == EAGAIN || w == EWOULDBLOCK) {
-								clear_request(&req);
+						struct Content cont;
+						memset(&cont,0,sizeof(struct Content));
+						switch(req.method){
+						case GET:
+							/* Load content */	
+							if(load_resource(req.resource,&cont) == -1){
+								printf("sending 404.\n");
+								/*send not found response*/
+
+								if(generate_response(&res,404,NULL,&req) == -1) break;
+
+
 								clear_content(&cont);
+								clear_request(&req);
+								printf("header is \n%s\n",res.header_str);
+								int w = 0;
+								if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK
+									uint8_t ws = 0;
+									while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+										ws = 1;
+										break;
+									}
+
+									clear_request(&req);
+									if(ws){
+										exit(0);
+									}
+									exit(1);
+#else
+									clear_request(&req);
+									continue;	
+#endif
+								}
+							}
+							/* send response */
+							if(generate_response(&res,OK,&cont,&req) == -1){
+								/*server error 500*/
+#if USE_FORK 
+								exit(0);
+#else 
 								continue;
+#endif
 							}
 
+							clear_content(&cont);
+							printf("2nd branch: response header is\n%s\n",res.header_str);
+							printf("writing to client.\n");
+							int w = 0;
+							if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
+
+							if(w == EAGAIN || w == EWOULDBLOCK){
+#if USE_FORK 
+								uint8_t ws = 0;
+								while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+										ws = 1;
+										break;
+								}
+
+								if(ws){
+									stop_listening(events[i].data.fd);
+									clear_response(&res);		
+									exit(0);
+								}
+
+								stop_listening(events[i].data.fd);
+								clear_response(&res);		
+								exit(1);
+#else 
+								continue;
+#endif
+							}
+
+							if(req.d_req)
+								fprintf(stdout,"%s\n",req.d_req);
+							else
+								fprintf(stdout,"%s\n",req.req);
+
+
 							clear_request(&req);
-							clear_response(&res);
-							
-							if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
+							clear_response(&res);		
+
+#if USE_FORK
+							stop_listening(events[i].data.fd);
+							exit(0);
+#else
+							remove_socket_from_monitor(events[i].data.fd);
 							continue;
+#endif
+						default:
+							/*send a bad request response*/
+#if USE_FORK
+							exit(0);
+#else
+							continue;
+#endif
 						}
-						break;
-					default:
-						/*send a bed request response*/
-						break;
 					}
-
-					/* send response */
-					if(generate_response(&res,OK,&cont,&req) == -1){
-
-
-					}
-
-					printf("response header is\n%s\n",res.header_str);
-					clear_content(&cont);
-					int w = 0;
-					printf("writing to client.\n");
-					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-
-
-					printf("after writing to client.\n");
-					if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
-
-					if(req.d_req)
-						fprintf(stdout,"%s\n",req.d_req);
-					else
-						fprintf(stdout,"%s\n",req.req);
-
-					clear_response(&res);
-					clear_request(&req);
+					/*parent*/
+					remove_socket_from_monitor(events[i].data.fd);
+					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
 					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-
 					if(w == EAGAIN || w == EWOULDBLOCK) {
+#if USE_FORK								
+						uint8_t ws = 0;
+						while((w = write_cli_sock(events[i].data.fd,&res)) == -1) {
+							if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+							ws = 1;
+							break;
+						}
+						if(ws){
+							clear_response(&res);
+							stop_listening(events[i].data.fd);
+							exit(0);
+						}
+
+						stop_listening(events[i].data.fd);
+						clear_request(&req);
+						exit(1);
+#else
 						clear_request(&req);
 						continue;
+#endif
 					}
-					
-					if(remove_socket_from_monitor(events[i].data.fd) == -1) break;
-					clear_request(&req);
+
 					clear_response(&res);
+#if USE_FORK
+					stop_listening(events[i].data.fd);
+					exit(0);
+#else
+					break;
+#endif
 				}
 			}
 		}
@@ -280,11 +548,11 @@ client:
 	int option = 0;
 	while((option = getopt(argc,argv,"g:")) != -1){
 		switch(option){
-		case 'g':
-			get(optarg);
-			break;
-		default:
-			break;
+			case 'g':
+				get(optarg);
+				break;
+			default:
+				break;
 		}
 	}
 

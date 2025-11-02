@@ -124,6 +124,8 @@ int write_cli_sock(int cli_sock, struct Response *res)
 int read_cli_sock(int cli_sock,struct Request *req)
 {
 	ssize_t bread = 0;	
+	errno = 0;
+
 	if((bread = read(cli_sock,req->req,BASE)) == -1){
 		if(errno == EAGAIN || errno == EWOULDBLOCK) {
 			int e = errno;
@@ -134,11 +136,12 @@ int read_cli_sock(int cli_sock,struct Request *req)
 		fprintf(stderr,"(%s): cannot read data from socket",prog);
 		return -1;
 	}
+
 	req->size = bread;
 	if(handle_request(req) == BAD_REQ){
 		if(req->method == -1) return BAD_REQ;
 		if(req->size < (ssize_t)BASE) return BAD_REQ;
-		
+
 		if(req->size == (ssize_t)BASE){
 			if(set_up_request(bread,req) == -1) return -1;
 
@@ -171,14 +174,14 @@ int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req)
 		}
 		return -1;
 	}
-		
+
 
 	int e = 0;
 	if(( e = read_cli_sock(*cli_sock,req)) == -1){
 		fprintf(stderr,"(%s): cannot read data from socket",prog);
 		return -1;
 	}
-	
+
 	if( e == EAGAIN || e == EWOULDBLOCK || e == BAD_REQ) return e;
 
 	return 0;	
@@ -206,11 +209,11 @@ int get(char *URL)
 	hints.ai_flags = 0;
 	hints.ai_protocol = 0;
 
-       	if((rsl = getaddrinfo(url.host,url.protocol, &hints,&result)) != 0){
+	if((rsl = getaddrinfo(url.host,url.protocol, &hints,&result)) != 0){
 		fprintf(stderr, "(%s): getaddrinfo: %s\n",prog, gai_strerror(rsl));
 		return -1;
 	}
-	
+
 	int  sock_fd = -1;
 	struct addrinfo *rp;
 	for( rp = result; rp != NULL; rp = rp->ai_next){
@@ -225,7 +228,7 @@ int get(char *URL)
 		fprintf(stderr,"(%s): could not connect to '%s'.\n",prog,URL);
 		return -1;
 	}
-	
+
 	/*send GET request*/
 	char req[1024] = {0};
 	if(snprintf(req,1024,"%s %s %s\r\n"\
@@ -234,17 +237,17 @@ int get(char *URL)
 				"Accept: %s\r\n"\
 				"Priority: %s\r\n"\
 				"Connection: %s\r\n\r\n","GET", url.resource, "HTTP/1.1",
-						url.host,
-						prog,
-						"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-						"u=0, i",
-						"keep-alive") == -1){
-		
+				url.host,
+				prog,
+				"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"u=0, i",
+				"keep-alive") == -1){
+
 		fprintf(stderr,"(%s): cannot form GET request.",prog);
 		close(sock_fd);
 		return -1;
 	}
-	
+
 	if(write(sock_fd,req,1024) == -1){
 		fprintf(stderr,"(%s): cannot send request to '%s'.\n",prog,URL);
 		close(sock_fd);
@@ -266,7 +269,7 @@ int get(char *URL)
 	 * TODO: if transfer encoding then look for the number and keep reading the data 
 	 * === DO NOT PRINT THE HEADER ===
 	 * */
-	
+
 	fprintf(stderr,"\n%s\n",&buff[index]);
 	close(sock_fd);
 	return 0;

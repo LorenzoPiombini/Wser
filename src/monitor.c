@@ -5,7 +5,7 @@
 #include <string.h>
 #include "monitor.h"
 
-static char prog[] = "wser"; 
+static char prog[] = "net_interface"; 
 
 
 struct epoll_event ev;
@@ -17,6 +17,7 @@ int nfds = -1;
 #define MAX_SK_LIST 256
 static int sock_list[MAX_SK_LIST];
 static int look_for_free_index();
+static int find_sock(int sock);
 static int free_socket_list(int sock);
 
 
@@ -47,25 +48,34 @@ int monitor_events()
 
 int add_socket_to_monitor(int sock,int event)
 {
-	int index = look_for_free_index();
+	
+	int index = -1;
 
-	if(index == -1) return -1;
+	if(find_sock(sock) == -1){
+		index = look_for_free_index();
 
-	sock_list[index] = sock;
+		if(index == -1) return -1; /* think about this line */
+
+		sock_list[index] = sock;
+	}
 		
 	errno = 0;
 	ev.events = event;
 	ev.data.fd = sock;
 	if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sock, &ev) == -1) {
 		if(errno == EEXIST) {
-			sock_list[index] = -1;
+			if(index != -1)
+				sock_list[index] = -1;
 			return errno;
 		}
 
-		sock_list[index] = -1;
+		if(index != -1)
+			sock_list[index] = -1;
+
         	fprintf(stderr,"(%s): cannot add socket to monitor",prog);
 		return -1;
 	}
+
 
 	return 0;
 }
@@ -73,9 +83,14 @@ int add_socket_to_monitor(int sock,int event)
 int remove_socket_from_monitor(int sock)
 {
 
+	errno = 0;
 	if (epoll_ctl(epollfd, EPOLL_CTL_DEL, sock,NULL) == -1) {
-               fprintf(stderr,"(%s): cannot remove socket from monitor",prog);
+               fprintf(stderr,"(%s): cannot remove socket from monitor: %s\n",prog,strerror(errno));
 	       close(sock);
+	       if (free_socket_list(sock) == -1) {
+		       fprintf(stderr,"(%s):socket %d not found in list.\n",prog,sock);
+		       return -1;
+	       }
                return -1;
 	}
 
@@ -93,9 +108,10 @@ int modify_monitor_event(int sock, int event)
 	ev.events = event;
 	ev.data.fd = sock;
 	if (epoll_ctl(epollfd, EPOLL_CTL_MOD, sock, &ev) == -1) {
-               fprintf(stderr,"(%s): cannot add socket to monitor",prog);
+               fprintf(stderr,"(%s): cannot mod socket event in the monitor",prog);
                return -1;
 	}
+	
 
 	return 0;
 }
@@ -111,6 +127,12 @@ void stop_monitor()
 	close(epollfd);
 }
 
+int is_sock_in_monitor(int sock){
+	for(int i = 0; i < MAX_SK_LIST; i++)
+		if(sock_list[i] == sock) return 1;
+
+	return 0;
+}
 static int look_for_free_index()
 {
 	for(int i = 0; i < MAX_SK_LIST; i++)
@@ -127,5 +149,13 @@ static int free_socket_list(int sock)
 			return 0;
 		}
 	}
+	return -1;
+}
+
+static int find_sock(int sock){
+	int i;
+	for(i = 0; i < MAX_SK_LIST; i++)
+		if(sock_list[i] == sock) return 0;
+
 	return -1;
 }

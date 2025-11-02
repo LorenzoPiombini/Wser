@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include "request.h"
 
 static char prog[] = "wser";
@@ -25,6 +26,26 @@ int handle_request(struct Request *req)
 	if(parse_header(head, req) == -1) return BAD_REQ;
 
 	map_content_type(req);
+	if(req->method == POST){
+		/*we should have a body*/
+		if(req->d_req){
+			if((req->size - h_end) < STD_REQ_BDY_CNT){
+				strncpy(req->req_body.content,&req->d_req[h_end],(req->size - h_end) - 1 );
+				return 0;
+			}else{
+				req->req_body.d_cont = calloc(req->size - h_end, sizeof(char));
+				if(!req->req_body.d_cont){
+					fprintf(stderr,"(%s): calloc failed with error '%s', %s:%d\n",
+							prog,strerror(errno),__FILE__,__LINE__-2);
+					return BAD_REQ;
+				}
+				strncpy(req->req_body.d_cont, &req->d_req[h_end],(req->size -h_end) - 1);
+				return 0;
+			}
+		}	
+
+		strncpy(req->req_body.content,&req->req[h_end],(req->size - h_end) - 1);
+	}
 	return 0;
 }
 
@@ -46,7 +67,9 @@ int set_up_request(ssize_t bytes,struct Request *req)
 void clear_request(struct Request *req)
 {
 	if(req->d_req) free(req->d_req);
+	if(req->req_body.d_cont) free(req->req_body.d_cont);
 	memset(req->req,0,BASE);
+	memset(req->req_body.content,0,STD_REQ_BDY_CNT);
 }
 
 
