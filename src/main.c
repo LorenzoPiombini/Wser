@@ -138,16 +138,17 @@ int main(int argc, char **argv)
 										break;
 									}
 									if(ws){
-										if(remove_socket_from_monitor(cli_sock) == -1){
-											clear_request(&req);
-											clear_content(&cont);
-											exit(1);
-										}
-
+										stop_listening(cli_sock);
 										clear_request(&req);
 										clear_content(&cont);
 										exit(0);
 									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
 
 									clear_request(&req);
 									clear_content(&cont);
@@ -159,7 +160,6 @@ int main(int argc, char **argv)
 									remove_socket_from_monitor(cli_sock);
 									continue;
 #endif
-								}
 #if USE_FORK
 								stop_listening(cli_sock);
 								clear_request(&req);
@@ -341,6 +341,7 @@ bad_request:
 									clear_request(&req);
 									exit(0);
 								}
+								stop_listening(cli_sock);
 								clear_request(&req);
 								exit(1);
 #else
