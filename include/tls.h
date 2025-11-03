@@ -1,12 +1,15 @@
 #ifndef _TLS_H_
 #define _TLS_H_ 1
 
-
+#include <stdint.h>
 #define PROTOCOL_VS 0x0303 /*TLS v 1.2 - legacy -*/
 
 typedef uint16_t Protocol_version; 
 typedef uint16_t Cypher_suite;
-typedef uint8_t Extension[8];
+typedef 
+typedef uint8_t uint24_t[3];
+
+struct Extensions{};
 
 struct Random{
 	uint8_t bytes[32];
