@@ -12,7 +12,9 @@
 #include <ifaddrs.h>
 #include "network.h"       
 #include "monitor.h"       
+#include "tls.h"       
 
+#define USE_HTTPS 1
 static char prog[] = "wser";
 static int parse_URL(char *URL, struct Url *url);
 #define LISTEN_BACKLOG 50
@@ -138,6 +140,12 @@ int read_cli_sock(int cli_sock,struct Request *req)
 	}
 
 	req->size = bread;
+#if USE_HTTPS
+	struct TLS_plain_text plain_text = {0};
+	if(get_TLS_plain_text(&plain_text,(uint8_t*)req->req) == -1){
+			return BAD_REQ;
+	}
+#else
 	if(handle_request(req) == BAD_REQ){
 		if(req->method == -1) return BAD_REQ;
 		if(req->size < (ssize_t)BASE) return BAD_REQ;
@@ -158,6 +166,7 @@ int read_cli_sock(int cli_sock,struct Request *req)
 		}
 	}
 
+#endif
 	return 0;
 }
 

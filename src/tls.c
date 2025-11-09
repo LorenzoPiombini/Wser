@@ -1,8 +1,12 @@
 #include <string.h>
 #include <byteswap.h>
+#include <sys/random.h>
 #include "tls.h"
 
 static struct Handshake handshake = {0};
+
+/*static func proto*/
+static int is_grease(uint16_t v);
 
 int get_TLS_plain_text(struct TLS_plain_text *plain_text, const uint8_t *buffer)
 {
@@ -54,7 +58,17 @@ int parse_handshake(struct Handshake *hs, const uint8_t *buffer)
 	{
 		/*parse client hello message*/
 		struct Client_hello ch = {0};
-		parse_client_hello(&ch,&buffer[move_in_buffer]);
+		if(parse_client_hello(&ch,&buffer[move_in_buffer]) == -1){ 
+			/*handshake failed */
+			return -1;
+		}
+
+		/*create server hello*/
+		struct Server_hello sh = {0};
+		if(create_server_hello(&ch,&sh) == -1){
+			/*handshake failed */
+			return -1;
+		}
 		break;
 	}
 	case SERVER_HELLO:
@@ -74,6 +88,62 @@ int parse_handshake(struct Handshake *hs, const uint8_t *buffer)
 	return 0;
 }
 
+int create_server_hello(struct Client_hello *ch,struct Server_hello *sh)
+{
+	sh->version = ch->version; 
+	memcpy(sh->legacy_session_id_echo, ch->legacy_session_id,ch->legacy_session_id_size);
+	uint32_t n;
+	if(getrandom(n,sizeof(n),0) == -1) return -1;
+	sh->cipher = ch->suites[n % 3];
+	sh->cipher = bswap16(sh->cipher);/*swap to big endian*/
+	if(getrandom(sh->random.bytes,32,0) == -1) return -1;
+	
+	/*server hello extensions*/
+	sh->ext.saved_extension[sh->ext.bwritten] = bswap16(SUPPORTED_VERSIONS);
+	sh->ext.bwritten += sizeof(uint16_t);
+	sh->ext.saved_extension[sh->ext.bwritten] = bswap16((uint16_t)1+2);
+	sh->ext.bwritten += sizeof(uint16_t);
+	sh->ext.saved_extension[sh->ext.bwritten] = (uint8_t) 1;
+	sh->ext.bwritten++;
+	sh->ext.saved_extension[sh->ext.bwritten] = (uint8_t) bswap16((uint16_t)0x0304);
+	sh->ext.bwritten += sizeof(uint16_t);
+
+
+	/*process ch extensions*/
+	uint32_t bread = 0;
+	while(bread < ch->ext.bwritten){
+		uint16_t extension_type = ch->ext[bread/sizeof(uint16_t)];
+		bread += sizeof(uint16_t);
+		switch(extension_type){
+		case SERVER_NAME: 
+		case MAX_FRAGMENT_LENGTH: 
+		case STATUS_REQUEST: 
+		case SUPPORTED_GROUPS: 
+		case SIGNATURE_ALGORITHMS: 
+		case USE_SRTP: 
+		case HEARTBEAT: 
+		case APPLICATION_LAYER_PROTOCOL_NEGOTIATION: 
+		case SIGNED_CERTIFICATE_TIMESTAMP: 
+		case CLIENT_CERTIFICATE_TYPE: 
+		case SERVER_CERTIFICATE_TYPE: 
+		case PADDING: 
+		case PRE_SHARED_KEY: 
+		case EARLY_DATA: 
+		case SUPPORTED_VERSIONS: 
+		case COOKIE: 
+		case PSK_KEY_EXCHANGE_MODES: 
+		case CERTIFICATE_AUTHORITIES: 
+		case OID_FILTERS: 
+		case POST_HANDSHAKE_AUTH: 
+		case SIGNATURE_ALGORITHMS_CERT:
+		case KEY_SHARE: 
+		default:
+			return -1;
+		}
+	}
+	
+
+}
 int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 {
 	
@@ -82,16 +152,19 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 	move_in_buffer += sizeof(Protocol_version);
 
 	ch->version = bswap_16(ch->version);
+	if(ch->version != PROTOCOL_VS_LEGACY) return -1;
+
 	memcpy(ch->random.bytes,&buffer[move_in_buffer],sizeof(ch->random.bytes));
 	move_in_buffer += sizeof(ch->random.bytes);
 
-	int legacy_size = (int)buffer[move_in_buffer];
+	ch->legacy_session_id_size = (int)buffer[move_in_buffer];
 	move_in_buffer += sizeof(uint8_t);
 
-	if(legacy_size > 32) return -1;
+	if(ch->legacy_session_id_size > 32) return -1;
 
-	memcpy(ch->legacy_session_id,&buffer[move_in_buffer],legacy_size);
-	move_in_buffer += legacy_size;
+	memcpy(ch->legacy_session_id,&buffer[move_in_buffer],ch->legacy_session_id_size);
+	 
+	move_in_buffer += ch->legacy_session_id_size;
 
 	uint16_t cipher_suites_size = 0;
 	memcpy(&cipher_suites_size,&buffer[move_in_buffer],sizeof(uint16_t));
@@ -114,7 +187,9 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 		case TLS_AES_128_GCM_SHA256:
 		case TLS_AES_256_GCM_SHA384:
 		case TLS_CHACHA20_POLY1305_SHA256:
-			found = 1;
+			if(found < 3)
+				ch->suites[found] = cipher_suites[i];
+			found++;
 			break;
 		default:
 			break;
@@ -155,6 +230,7 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 		switch(extension_type){
 			case SERVER_NAME: 
 			{
+				
 				uint16_t len = 0;
 				memcpy(&len,p,sizeof(uint16_t));
 				len = bswap_16(len);
@@ -184,10 +260,21 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 			}
 			case STATUS_REQUEST: 
 			{
+				/*for TLS 1.3 we can ignore this extension*/
+				uint16_t len = 0;
+				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
+				len = bswap_16(len);
+				p += len;
+				bread += len;
 				break;
 			}
 			case SUPPORTED_GROUPS: 
 			{
+				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = extension_type;
+				ch->ext.bwritten += sizeof(extension_type);
+
 				uint16_t len = 0;
 				memcpy(&len,p,sizeof(uint16_t));
 				len = bswap_16(len);
@@ -198,46 +285,194 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 				p += len;
 				bread += len;
 				
-				size_t i;
-				for(i = 0; i < len/sizeof(uint16_t);i++){
+				uint16_t found_group[30] = {0};
+				int i, f = 0;
+				for(i = 0; i < (int)(len/sizeof(uint16_t));i++){
 					list[i] = bswap_16(list[i]);
 					switch(list[i]){
 					case secp256r1:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
+
 						break;
 					case secp384r1:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case secp521r1:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case x25519:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case x448:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case ffdhe2048:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case ffdhe3072:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case ffdhe4096:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case ffdhe6144:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					case ffdhe8192:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
-					case ffdhe_private_use_a:
+					case ffdhe_private_use_start:
+						if(f < 30)
+							found_group[f] = list[i];
 						break;
-					case ffdhe_private_use_b:
+					case ffdhe_private_use_end:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
-					case ecdhe_private_use_a:
+					case ecdhe_private_use_start:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
-					case ecdhe_private_use_b:
-						break;
-					default:
+					case ecdhe_private_use_end:
+						if(f < 30)
+							found_group[f] = list[i];
+						f++;
 						break;
 					}
 				}
+				if(!f) return -1;
+				uint16_t ls = f* sizeof(uint16_t);
+				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = ls;
+				ch->ext.bwritten += sizeof(ls);
+				memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+						found_group,f*sizeof(uint16_t));
+				ch->ext.bwritten += f*sizeof(uint16_t);
 				break;
 			}
 			case SIGNATURE_ALGORITHMS:
 			{
+				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = extension_type;
+				ch->ext.bwritten += sizeof(extension_type);
+				uint16_t len = 0;/*signatue algo block*/
+				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
+				len = bswap_16(len);
+
+				uint8_t sig_algo[len];
+				memcpy(sig_algo,p,len);
+				p += len;
+				bread += len;
+
+				uint16_t list_size = 0;
+				int move_in_sig_algo_list = 0;
+				memcpy(&list_size,sig_algo,sizeof(uint16_t));
+				move_in_sig_algo_list += sizeof(uint16_t);
+				list_size = bswap_16(list_size);
+				
+				uint16_t sig_algos[list_size/sizeof(uint16_t)];
+				memcpy(sig_algos,sig_algo,list_size/sizeof(uint16_t));
+				uint16_t found_sig[14] = {0};
+				int i,f = 0;
+				for(i = 0; i < (int)(list_size/sizeof(uint16_t)); i++){
+					sig_algos[i] = bswap_16(sig_algos[i]);
+					switch(sig_algos[i]){
+					case RSA_PKCS1_SHA256:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PKCS1_SHA384:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PKCS1_SHA512:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case ECDSA_SECP256R1_SHA256:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case ECDSA_SECP384R1_SHA384:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case ECDSA_SECP521R1_SHA512:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PSS_RSAE_SHA256:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PSS_RSAE_SHA384:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PSS_RSAE_SHA512:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case ED25519:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case ED448:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PSS_PSS_SHA256:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PSS_PSS_SHA384:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case RSA_PSS_PSS_SHA512:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case PRIVATE_USE_START:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					case PRIVATE_USE_END:
+						if(f < 14) found_sig[i] = sig_algos[i];
+						f++;
+						break;
+					}
+				}
+				if (!f) return -1;
+
+				uint16_t ls = f * sizeof(uint16_t);
+				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = ls;
+				ch->ext.bwritten += sizeof(ls);
+				memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+						found_sig,f*sizeof(uint16_t));
+				ch->ext.bwritten += f *sizeof(uint16_t);
 				break;
 			}
 			case USE_SRTP:
@@ -252,6 +487,8 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 			{
 				uint16_t len = 0;
 				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
 				len = bswap_16(len);
 				uint8_t app_proto_layer_buff[len];
 				memcpy(app_proto_layer_buff,p,len);
@@ -262,20 +499,30 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 				memcpy(&proto_lis_size,app_proto_layer_buff,sizeof(uint16_t));
 				move_in_app_proto += sizeof(uint16_t);
 				proto_lis_size = bswap_16(proto_lis_size);		
-				while(move_in_app_proto < len){
+				while(move_in_app_proto < proto_lis_size){
 					uint16_t proto_size = 0;
-					memcpy(&proto_size,&app_proto_layer_buff[move_in_app_proto],sizeof(uint16_t));
-					move_in_app_proto += sizeof(uint16_t);
+					memcpy(&proto_size,&app_proto_layer_buff[move_in_app_proto],sizeof(uint8_t));
+					move_in_app_proto += sizeof(uint8_t);
 					char prot[proto_size+1];
 					prot[proto_size] = '\0';
 					memcpy(prot,&app_proto_layer_buff[move_in_app_proto],proto_size);
 					move_in_app_proto += proto_size;
-					if(strncpy(APP_LAYER_PROTO_DEFAULT,prot,strlen(prot)) == 0) break;
+					if(strncmp(APP_LAYER_PROTO_DEFAULT,prot,strlen(prot)) == 0) break;
 				}
 				break;
 			}
 			case SIGNED_CERTIFICATE_TIMESTAMP:
 			{
+				uint16_t len = 0;
+				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
+
+				if(len == 0) continue;
+											
+				len = bswap_16(len);
+				p += len;
+				bread += len;
 				break;
 			}
 			case CLIENT_CERTIFICATE_TYPE:
@@ -288,6 +535,15 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 			}
 			case PADDING:
 			{
+				uint16_t len = 0;
+				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
+
+				len = bswap_16(len);
+				p += len;
+				bread += len;
+
 				break;
 			}
 			case PRE_SHARED_KEY:
@@ -317,6 +573,7 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 				size_t i;
 				uint8_t f = 0;
 				for(i = 0; i < list_size/sizeof(uint16_t);i++){
+					list[i] = bswap_16(list[i]);
 					if(list[i] == 0x0304) f = 1;		
 				}
 				if(!f) return -1;
@@ -329,6 +586,26 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 			}
 			case PSK_KEY_EXCHANGE_MODES:
 			{
+				uint16_t len = 0;
+				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
+
+				if(len == 0) continue;
+
+				len = bswap_16(len);
+				uint8_t psk_list_size = p[bread];
+				uint8_t psk_mode = p[bread+1];
+				p += len;
+				bread += len;
+				switch(psk_mode){
+				case PSK_KE: 
+				case PSK_DHE_KE:
+					break;
+				default:
+					return -1;
+				}
+				
 				break;
 			}
 			case CERTIFICATE_AUTHORITIES:
@@ -349,6 +626,107 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 			}
 			case KEY_SHARE:
 			{
+				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = extension_type;
+				ch->ext.bwritten += sizeof(extension_type);
+
+				uint16_t len = 0;
+				memcpy(&len,p,sizeof(uint16_t));
+				p += sizeof(uint16_t);
+				bread += sizeof(uint16_t);
+
+				if(len == 0)continue;
+
+				len = bswap_16(len);
+				uint8_t key_share_block[len];
+				memcpy(key_share_block,p,len);
+				p += len;
+				bread += len;
+
+				uint16_t key_shares_l = 0;
+				int move_in_key_shares_block = 0;
+				memcpy(&key_shares_l,key_share_block,sizeof(uint16_t));
+				key_shares_l = bswap_16(key_shares_l);
+				move_in_key_shares_block += sizeof(uint16_t);
+				uint16_t key_size = 0;
+				do{
+				uint16_t named_group = 0;
+				memcpy(&named_group,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+				move_in_key_shares_block += sizeof(uint16_t);
+				named_group = bswap_16(named_group);
+				switch(named_group){
+				case secp256r1:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case secp384r1:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case secp521r1:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case x25519:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case x448:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe2048:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe3072:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe4096:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe6144:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe8192:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe_private_use_start:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ffdhe_private_use_end:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ecdhe_private_use_start:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				case ecdhe_private_use_end:
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+					ch->ext.bwritten += sizeof(named_group);
+					break;
+				default:
+					if(is_grease(named_group)) break;
+					return -1;
+				}
+
+				memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+				move_in_key_shares_block += sizeof(uint16_t);
+			
+				key_size = bswap_16(key_size);
+				if(key_size == 1) move_in_key_shares_block++;
+				}while(key_size == 1);
+
+				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+				ch->ext.bwritten += sizeof(key_size);
+				memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+						&key_share_block[move_in_key_shares_block],key_size);
+				ch->ext.bwritten += key_size;
 				break;
 			}
 			default:
@@ -367,4 +745,9 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 		}
 	}
 	if(!supported_vs_found) return -1;
+	return 0;
+}
+
+static int is_grease(uint16_t v) {
+    return ((v & 0x0f0f) == 0x0a0a) && ((v >> 8) == (v & 0xff));
 }

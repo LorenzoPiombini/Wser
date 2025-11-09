@@ -2,8 +2,8 @@
 #define _TLS_H_ 1
 
 #include <stdint.h>
-#define APP_LAYER_PROTO_DEFAULT "htpp/1.1"
-#define PROTOCOL_VS 0x0303 /*TLS v 1.2 - legacy -*/
+#define APP_LAYER_PROTO_DEFAULT "http/1.1"
+#define PROTOCOL_VS_LEGACY 0x0303 /*TLS v 1.2 - legacy -*/
 #define TWO_POWER_OF_14 16384
 #define CIPHER_SUITES_MAX_SIZE 65534 
 
@@ -76,19 +76,37 @@ struct Handshake{
 
 
 struct Extension{
-	uint16_t extension_type;
-
+	/* extension_type
+	 * extension_len
+	 * */
+	uint16_t saved_extension[1024*4];
+	uint16_t bwritten;
 };
 
 struct Client_hello{
 	Protocol_version version;
 	struct Random random;
+	uint8_t legacy_session_id_size;
 	uint8_t legacy_session_id[32];
-	Cypher_suite *suites;
-	uint8_t legacy_compression_method[255];
-	struct Extension extension;
+	Cypher_suite suites[3];
+	uint8_t legacy_compression_method;
+	struct Extension ext;
 };
-struct Server_hello{};
+
+struct Server_hello{
+	Protocol_version version;   /* it has to be TLS v1.2 */
+	struct Random random;
+	uint8_t legacy_session_id_echo[32]; /*it has to be == to the client hello*/
+	Cypher_suite cipher; /* choose one randmly*/
+	uint8_t legacy_compression_method;
+	struct Extension extension;
+	/*Extension extensions<6..2^16-1>*/
+};
+
+enum Certificate_status_type{
+	OCSP = 1,
+	MAX_SIZE_STATUS_TYPE = 255
+};
 
 enum Extension_type{
 	SERVER_NAME = 0,                             /* RFC 6066 */
@@ -115,6 +133,17 @@ enum Extension_type{
 	KEY_SHARE = 51,                              /* RFC 8446 */
 	MAX_EXTENSION_SIZE = 65535
 };
+enum Signature_type{ 
+	CERTIFICATE_TIMESTAMP = 0, 
+	TREE_HASH = 1,
+	MAX_VALUE_SIG_TYPE = 255
+};
+
+enum psk_key_exchange_mode{ 
+	PSK_KE = 0, 
+	PSK_DHE_KE = 1, 
+	PSK_KEY_MAX_SIZE = 255
+};
 enum Named_group{/*key exchange methods*/
 
 	/* Elliptic Curve Groups (ECDHE) */
@@ -132,17 +161,51 @@ enum Named_group{/*key exchange methods*/
 	ffdhe8192 =0x0104,
 
 	/* Reserved Code Points */
-	ffdhe_private_use_a = 0x01FC,
-	ffdhe_private_use_b = 0x01FF,
-	ecdhe_private_use_a = 0xFE00,
-	ecdhe_private_use_b = 0xFEFF,
+	ffdhe_private_use_start = 0x01FC,
+	ffdhe_private_use_end = 0x01FF,
+	ecdhe_private_use_start = 0xFE00,
+	ecdhe_private_use_end = 0xFEFF,
 	NAME_GROUP_MAX = 0xFFFF
 };
 
+enum Signature_scheme{
+          /* RSASSA-PKCS1-v1_5 algorithms */
+          RSA_PKCS1_SHA256 = 0x0401,
+          RSA_PKCS1_SHA384 = 0x0501,
+          RSA_PKCS1_SHA512 = 0x0601,
 
+          /* ECDSA algorithms */
+          ECDSA_SECP256R1_SHA256 = 0x0403,
+          ECDSA_SECP384R1_SHA384 = 0x0503,
+          ECDSA_SECP521R1_SHA512 = 0x0603,
+
+          /* RSASSA-PSS algorithms with public key OID rsaEncryption */
+          RSA_PSS_RSAE_SHA256 = 0x0804,
+          RSA_PSS_RSAE_SHA384 = 0x0805,
+          RSA_PSS_RSAE_SHA512 = 0x0806,
+
+          /* EdDSA algorithms */
+          ED25519 = 0x0807,
+          ED448 = 0x0808,
+
+          /* RSASSA-PSS algorithms with public key OID RSASSA-PSS */
+          RSA_PSS_PSS_SHA256 = 0x0809,
+          RSA_PSS_PSS_SHA384 = 0x080A,
+          RSA_PSS_PSS_SHA512 = 0x080B,
+
+          /* Legacy algorithms */
+          RSA_PKCS1_SHA1 = 0x0201,
+          ECDSA_SHA1 = 0x0203,
+
+          /* Reserved Code Points */
+          PRIVATE_USE_START = 0xFE00,
+		  PRIVATE_USE_END = 0xFFFF,
+          MAX_VALUE_ALGO_SIG = 0xFFFF
+};
 
 /*API functions*/
 int get_TLS_plain_text(struct TLS_plain_text *plain_text, const uint8_t *buffer);
 int parse_handshake(struct Handshake *hs, const uint8_t *buffer);
 int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer);
+int create_server_hello(struct Client_hello *ch,struct Server_hello *sh);
 #endif
