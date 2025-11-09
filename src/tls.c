@@ -112,7 +112,7 @@ int create_server_hello(struct Client_hello *ch,struct Server_hello *sh)
 	/*process ch extensions*/
 	uint32_t bread = 0;
 	while(bread < ch->ext.bwritten){
-		uint16_t extension_type = ch->ext[bread/sizeof(uint16_t)];
+		uint16_t extension_type = ch->ext.saved_extension[ch->ext.bread/sizeof(uint16_t)];
 		bread += sizeof(uint16_t);
 		switch(extension_type){
 		case SERVER_NAME: 

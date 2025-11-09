@@ -83,6 +83,15 @@ struct Extension{
 	uint16_t bwritten;
 };
 
+struct Extension_sh{
+	/* extension_type
+	 * extension_len
+	 * */
+	uint8_t saved_extension[1024*2];
+	uint16_t bwritten;
+};
+
+
 struct Client_hello{
 	Protocol_version version;
 	struct Random random;
@@ -99,7 +108,7 @@ struct Server_hello{
 	uint8_t legacy_session_id_echo[32]; /*it has to be == to the client hello*/
 	Cypher_suite cipher; /* choose one randmly*/
 	uint8_t legacy_compression_method;
-	struct Extension extension;
+	struct Extension_sh ext;
 	/*Extension extensions<6..2^16-1>*/
 };
 
