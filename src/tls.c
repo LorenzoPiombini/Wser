@@ -7,6 +7,7 @@ static struct Handshake handshake = {0};
 
 /*static func proto*/
 static int is_grease(uint16_t v);
+static void conditional_swap(uint64_t r[2][4],uint64_t r1[2][4],uint64_t bit);
 
 int get_TLS_plain_text(struct TLS_plain_text *plain_text, const uint8_t *buffer)
 {
@@ -92,61 +93,86 @@ int create_server_hello(struct Client_hello *ch,struct Server_hello *sh)
 {
 	sh->version = ch->version; 
 	memcpy(sh->legacy_session_id_echo, ch->legacy_session_id,ch->legacy_session_id_size);
-	uint32_t n;
-	if(getrandom(n,sizeof(n),0) == -1) return -1;
+	uint32_t n = 0;
+	if(getrandom(&n,sizeof(n),0) == -1) return -1;
 	sh->cipher = ch->suites[n % 3];
-	sh->cipher = bswap16(sh->cipher);/*swap to big endian*/
+	sh->cipher = bswap_16(sh->cipher);/*swap to big endian*/
 	if(getrandom(sh->random.bytes,32,0) == -1) return -1;
 	
 	/*server hello extensions*/
-	sh->ext.saved_extension[sh->ext.bwritten] = bswap16(SUPPORTED_VERSIONS);
+	sh->ext.saved_extension[sh->ext.bwritten] = bswap_16(SUPPORTED_VERSIONS);
 	sh->ext.bwritten += sizeof(uint16_t);
-	sh->ext.saved_extension[sh->ext.bwritten] = bswap16((uint16_t)1+2);
+	sh->ext.saved_extension[sh->ext.bwritten] = bswap_16((uint16_t)1+2);
 	sh->ext.bwritten += sizeof(uint16_t);
 	sh->ext.saved_extension[sh->ext.bwritten] = (uint8_t) 1;
 	sh->ext.bwritten++;
-	sh->ext.saved_extension[sh->ext.bwritten] = (uint8_t) bswap16((uint16_t)0x0304);
+	sh->ext.saved_extension[sh->ext.bwritten] = (uint8_t) bswap_16((uint16_t)0x0304);
 	sh->ext.bwritten += sizeof(uint16_t);
 
-
-	/*process ch extensions*/
-	uint32_t bread = 0;
-	while(bread < ch->ext.bwritten){
-		uint16_t extension_type = ch->ext.saved_extension[ch->ext.bread/sizeof(uint16_t)];
+	/*reparse the client extensions*/
+	uint16_t ext_type = 0;
+	int bread = 0;
+	do{
+		uint16_t l = 0;
+		memcpy(&ext_type,&ch->ext.saved_extension[bread],sizeof(uint16_t));
 		bread += sizeof(uint16_t);
-		switch(extension_type){
-		case SERVER_NAME: 
-		case MAX_FRAGMENT_LENGTH: 
-		case STATUS_REQUEST: 
-		case SUPPORTED_GROUPS: 
-		case SIGNATURE_ALGORITHMS: 
-		case USE_SRTP: 
-		case HEARTBEAT: 
-		case APPLICATION_LAYER_PROTOCOL_NEGOTIATION: 
-		case SIGNED_CERTIFICATE_TIMESTAMP: 
-		case CLIENT_CERTIFICATE_TYPE: 
-		case SERVER_CERTIFICATE_TYPE: 
-		case PADDING: 
-		case PRE_SHARED_KEY: 
-		case EARLY_DATA: 
-		case SUPPORTED_VERSIONS: 
-		case COOKIE: 
-		case PSK_KEY_EXCHANGE_MODES: 
-		case CERTIFICATE_AUTHORITIES: 
-		case OID_FILTERS: 
-		case POST_HANDSHAKE_AUTH: 
-		case SIGNATURE_ALGORITHMS_CERT:
-		case KEY_SHARE: 
-		default:
-			return -1;
+		if(ext_type != KEY_SHARE){
+			memcpy(&l,&ch->ext.saved_extension[bread],sizeof(uint16_t));
+			bread += sizeof(uint16_t) + l;
 		}
-	}
-	
+		if(bread == ch->ext.bwritten) break;
+	}while(ext_type != KEY_SHARE);
 
+	/*find the named group in the key_extension*/
+
+	switch(){
+	case x25519:
+	{
+	/*generate and write the public_key*/
+
+		const uint64_t p[4] = {0XFFFFFFFFFFFFFFEDULL,
+								0XFFFFFFFFFFFFFFFFULL,
+								0XFFFFFFFFFFFFFFFFULL,
+								0X7FFFFFFFFFFFFFFFULL};
+		const uint64_t a24 = 121666;
+		uint8_t k[32] = {0};
+		if(getrandom(k,32,0) == -1) return -1;
+
+		/*clamp*/	
+		k[0] &= 248;
+		k[31] &= 127;
+		k[21] |= 64;
+
+		/*create pubblic key*/
+		uint64_t R0[2][4] = {0};
+		uint64_t R1[2][4] = {0};
+		R1[0][0] = 9;
+		R1[1][0] = 1;
+		R0[0][0] = 1;
+
+		int i, prev = 0;
+		for(i = 254; i >= 0; i--){
+			uint64_t bit = (k[i/8] >> (i % 8)) & 1;
+			int64_t swap = bit ^ prev;
+			int64_t mask = 0 - swap;
+			conditional_swap(R0,R1,mask);
+			R0 = point_double(R0);
+			prev = bit;
+		
+		conditional_swap(R0,R1,0 - prev);
+
+		break;
+	}
+	default:
+	return -1;
+	}
+
+
+	return 0;
 }
 int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 {
-	
+
 	int move_in_buffer = 0;
 	memcpy(&ch->version,&buffer[move_in_buffer],sizeof(Protocol_version));
 	move_in_buffer += sizeof(Protocol_version);
@@ -363,7 +389,7 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 					}
 				}
 				if(!f) return -1;
-				uint16_t ls = f* sizeof(uint16_t);
+				uint16_t ls = f * sizeof(uint16_t);
 				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = ls;
 				ch->ext.bwritten += sizeof(ls);
 				memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
@@ -649,85 +675,367 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 				move_in_key_shares_block += sizeof(uint16_t);
 				uint16_t key_size = 0;
 				do{
-				uint16_t named_group = 0;
-				memcpy(&named_group,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
-				move_in_key_shares_block += sizeof(uint16_t);
-				named_group = bswap_16(named_group);
-				switch(named_group){
-				case secp256r1:
-					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
-					ch->ext.bwritten += sizeof(named_group);
-					break;
+					uint16_t named_group = 0;
+					memcpy(&named_group,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+					named_group = bswap_16(named_group);
+					switch(named_group){
+						/*ECC*/
+					case secp256r1:
+					{
+						ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
+						ch->ext.bwritten += sizeof(named_group);
+
+						memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+						move_in_key_shares_block += sizeof(uint16_t);
+
+						key_size = bswap_16(key_size);
+						if(key_size == 1){
+							move_in_key_shares_block++;
+							continue;
+						}
+						ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+						ch->ext.bwritten += sizeof(key_size);
+						memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+								&key_share_block[move_in_key_shares_block],key_size);
+						/*verify the key*/
+
+						uint8_t legacy_form = key_share_block[move_in_key_shares_block];
+						if(legacy_form != 4) return -1;
+
+						move_in_key_shares_block++;
+						uint32_t x = 0, y = 0;
+
+						memcpy(&x,&key_share_block[move_in_key_shares_block],sizeof(uint32_t));
+						x = bswap_32(x);
+						move_in_key_shares_block += sizeof(uint32_t);
+						memcpy(&y,&key_share_block[move_in_key_shares_block],sizeof(uint32_t));
+						y = bswap_32(y);
+						move_in_key_shares_block += sizeof(uint32_t);
+
+						ch->ext.bwritten += key_size;
+
+						break;
+					}
 				case secp384r1:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					uint8_t legacy_form = key_share_block[move_in_key_shares_block];
+					if(legacy_form != 4) return -1;
+
+					move_in_key_shares_block++;
+
+					ch->ext.bwritten += key_size;
+
 					break;
+				}
 				case secp521r1:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					uint8_t legacy_form = key_share_block[move_in_key_shares_block];
+					if(legacy_form != 4) return -1;
+
+					move_in_key_shares_block++;
+
+					uint64_t x = 0, y = 0;
+
+					memcpy(&x,&key_share_block[move_in_key_shares_block],sizeof(uint64_t));
+					x = bswap_64(x);
+					move_in_key_shares_block += sizeof(uint64_t);
+					memcpy(&y,&key_share_block[move_in_key_shares_block],sizeof(uint64_t));
+					y = bswap_64(y);
+					move_in_key_shares_block += sizeof(uint32_t);
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case x25519:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					/*verify the key*/
+					if(key_size != 32) return -1;
+
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					ch->ext.bwritten += key_size;
+
 					break;
+				}
 				case x448:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
+				/*FCC*/
 				case ffdhe2048:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ffdhe3072:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ffdhe4096:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ffdhe6144:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ffdhe8192:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ffdhe_private_use_start:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ffdhe_private_use_end:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ecdhe_private_use_start:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				case ecdhe_private_use_end:
+				{
 					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = named_group;
 					ch->ext.bwritten += sizeof(named_group);
+
+					memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+					move_in_key_shares_block += sizeof(uint16_t);
+
+					key_size = bswap_16(key_size);
+					if(key_size == 1){
+						move_in_key_shares_block++;
+						continue;
+					}
+					ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
+					ch->ext.bwritten += sizeof(key_size);
+					memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
+							&key_share_block[move_in_key_shares_block],key_size);
+					/*verify the key*/
+					ch->ext.bwritten += key_size;
 					break;
+				}
 				default:
-					if(is_grease(named_group)) break;
+				{
+					if(is_grease(named_group)){ 
+						memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
+						move_in_key_shares_block += sizeof(uint16_t);
+						key_size = bswap_16(key_size);
+						if(key_size == 1){
+							move_in_key_shares_block++;
+							continue;
+						}
+
+						break;
+					}
 					return -1;
 				}
+				}
 
-				memcpy(&key_size,&key_share_block[move_in_key_shares_block],sizeof(uint16_t));
-				move_in_key_shares_block += sizeof(uint16_t);
-			
-				key_size = bswap_16(key_size);
-				if(key_size == 1) move_in_key_shares_block++;
+
 				}while(key_size == 1);
 
-				ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)] = key_size;
-				ch->ext.bwritten += sizeof(key_size);
-				memcpy(&ch->ext.saved_extension[ch->ext.bwritten/sizeof(uint16_t)],
-						&key_share_block[move_in_key_shares_block],key_size);
-				ch->ext.bwritten += key_size;
-				break;
+					break;
 			}
 			default:
 			{
@@ -749,5 +1057,20 @@ int parse_client_hello(struct Client_hello *ch,const uint8_t *buffer)
 }
 
 static int is_grease(uint16_t v) {
-    return ((v & 0x0f0f) == 0x0a0a) && ((v >> 8) == (v & 0xff));
+	return ((v & 0x0f0f) == 0x0a0a) && ((v >> 8) == (v & 0xff));
+}
+
+static void conditional_swap(uint64_t r[2][4],uint64_t r1[2][4],uint64_t mask)
+{
+	int i;
+	for(i = 0; i < 4; i++){
+		uint64_t temp = mask & (r[0][i] ^ r1[0][i]);
+		r[0][i] ^= temp;	
+		r1[0][i] ^= temp;	
+
+		temp = mask & (r[1][i] ^ r1[1][i]);
+		r[1][i] ^= temp;	
+		r1[1][i] ^= temp;	
+	}
+
 }
