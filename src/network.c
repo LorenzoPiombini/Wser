@@ -10,15 +10,73 @@
 #include <netdb.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include "network.h"       
 #include "monitor.h"       
 #include "tls.h"       
 
-#define USE_HTTPS 1
+char cache_id[] = "wser";
+SSL_CTX *ctx = NULL;
+
+#define USE_HTTPS 0
 static char prog[] = "wser";
 static int parse_URL(char *URL, struct Url *url);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
+
+int init_SSL(SSL_CTX **ctx){
+	long opts;
+
+	*ctx = SSL_CTX_new(TLS_server_method());
+	if(!(*ctx)) {
+		fprintf(stderr,"failed to create SSL context");
+		return -1;
+	}
+
+
+	if(!SSL_CTX_set_min_proto_version(*ctx,TLS1_2_VERSION)) {
+		fprintf(stderr,"failed to set minimum TLS version\n");
+		SSL_CTX_free(*ctx);
+		return -1;
+	}
+
+	/*
+	 * setting the option for the SSL context
+	 *
+	 * for documentation on what this option are please see
+	 * openSSL documentaion at 
+	 * https://docs.openssl.org/master/man7/ossl-guide-tls-server-block/
+	 * or 
+	 * https://github.com/openssl/openssl/blob/master/demos/guide/tls-server-block.c 
+	 **/
+
+	opts = SSL_OP_IGNORE_UNEXPECTED_EOF;
+	opts |= SSL_OP_NO_RENEGOTIATION;
+	opts |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+
+	/*apply the selction options */
+	SSL_CTX_set_options(*ctx, opts);
+
+	if(SSL_CTX_use_certificate_chain_file(*ctx,"/path/to/your/fullchain.pem") <= 0 ) {
+		fprintf(stderr,"error use certificate.\n");
+		return -1;
+	}
+
+	if(SSL_CTX_use_PrivateKey_file(*ctx, "path/to/yours/privkey.pem",SSL_FILETYPE_PEM) <= 0) {
+		fprintf(stderr,"error use privatekey ");
+		return -1;
+	}
+
+	SSL_CTX_set_session_id_context(*ctx,(void*)cache_id,sizeof(cache_id));
+	SSL_CTX_set_session_cache_mode(*ctx,SSL_SESS_CACHE_SERVER);
+	SSL_CTX_sess_set_cache_size(*ctx, 1024);
+	SSL_CTX_set_timeout(*ctx,3600);
+	SSL_CTX_set_verify(*ctx,SSL_VERIFY_NONE, NULL);
+
+	return 0;
+}
+
 
 int listen_port_80(uint16_t *port)
 {
@@ -170,6 +228,91 @@ int read_cli_sock(int cli_sock,struct Request *req)
 	return 0;
 }
 
+int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL **ssl, SSL_CTX **ctx)
+{
+	struct sockaddr cli_info;
+	socklen_t len = sizeof(cli_info);
+	errno = 0;
+
+	if((*cli_sock = accept4(sock_fd,&cli_info,&len,SOCK_NONBLOCK)) == -1){
+		if(errno == EAGAIN || errno == EWOULDBLOCK) {
+			if((add_socket_to_monitor(*cli_sock,EPOLLIN | EPOLLET)) == -1) return -1;
+			return errno;
+		}
+		return -1;
+	}
+	if((*ssl = SSL_new(ctx)) == NULL) {
+		fprintf(stderr,"error creating SSL handle for new connection.\n");
+		return SSL_HD_F;
+	}
+
+	if(!SSL_set_fd(*ssl,*cli_sock)) {
+		fprintf(stderr,"error setting socket to SSL context.\n");
+		SSL_free(*ssl);
+		return SSL_SET_E;		
+	}		
+
+	/*try handshake with the client*/	
+	int hs_res = 0;
+	if((hs_res = SSL_accept(*ssl)) <= 0) {
+		int err = SSL_get_error(*ssl,hs_res);
+		if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+			/* 
+			 * socket is not ready
+			 * so we add the file descriptor to the epoll system
+			 * and return;
+			 * */
+			if((add_socket_to_monitor(*cli_sock,EPOLLIN | EPOLLET)) == -1) {
+				SSL_free(*ssl);
+				return -1;
+			}
+
+			return HEADER;		
+		}else {
+			SSL_free(*ssl);
+			return -1;
+		}
+	}
+
+	size_t bread = 0;
+	int result = 0;
+	/*TODO: use SSL_peek_ex() instead?*/
+	if((result = SSL_read_ex(*ssl,req->base,BASE,&bread)) == 0) {
+		int err = SSL_get_error(*ssl,result);
+		if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+			/* 
+			 * socket is not ready add the file descriptor to the epoll system
+			 * */
+			if((add_socket_to_monitor(*cli_sock,EPOLLIN | EPOLLET)) == -1) {
+				SSL_free(*ssl);
+				return -1;
+			}
+
+			return SSL_READ_E; 
+		}else {
+			SSL_free(*ssl);
+			return -1;
+		}
+	}
+
+	if(bread == BASE){
+		/*
+		 * TODO: read again the socket,
+		 * req is bigger than BASE = (1024 bytes)*/
+	}
+	/* DEL THIS*/
+	int e = 0;
+	if(( e = read_cli_sock(*cli_sock,req)) == -1){
+		fprintf(stderr,"(%s): cannot read data from socket",prog);
+		return -1;
+	}
+
+	if( e == EAGAIN || e == EWOULDBLOCK || e == BAD_REQ) return e;
+	/**/
+
+	return 0;	
+}
+
 int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req)
 {
 	struct sockaddr cli_info;
@@ -183,7 +326,6 @@ int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req)
 		}
 		return -1;
 	}
-
 
 	int e = 0;
 	if(( e = read_cli_sock(*cli_sock,req)) == -1){

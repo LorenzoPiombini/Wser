@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h> 
+#include <openssl/ssl.h> 
 #include "network.h" 
 #include "load.h"
 #include "request.h"
@@ -19,7 +20,11 @@ char prog[] = "wser";
 
 int main(int argc, char **argv)
 {	
-	if(argc > 1) goto client; 
+	int secure = 0;
+	if(argc > 2) goto client; 
+
+	if(*argv[1] == 's') secure = 1;
+
 	if(check_default_setting() == -1){
 		fprintf(stderr,"(%s): cannot start the server, configuration issue.",prog);
 		return -1;
@@ -44,7 +49,17 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	
+	if(secure){
+		if(init_SSL(&ctx) == -1){
+			fprintf(stderr,"(%s): cannot start SSL to port 80.\n",prog);
+			start_monitor();
+			stop_listening(con);
+			return -1;
+		}
+	}
 	int cli_sock = -1;
+	SSL ssl_cli = NULL;
 
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
@@ -58,9 +73,16 @@ int main(int argc, char **argv)
 			req.method = -1;
 			if(events[i].data.fd == con){
 				int r = 0;
-				if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
+				if(secure){
+					if((r = wait_for_connections(con,&cli_sock,&req,&ctx,&ssl_cli)) == -1) break;
+				}else{
+					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
+				}
 
-				if(r == EAGAIN || r == EWOULDBLOCK) continue;
+				if(r == EAGAIN || 
+						r == EWOULDBLOCK 	|| 
+						r == HANDSHAKE 		|| 
+						r == SSL_READ_E) continue;
 					
 #if USE_FORK
 				pid_t child = fork();

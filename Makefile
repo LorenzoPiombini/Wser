@@ -10,7 +10,7 @@ clean:
 	rm ./$(TARGET)
 
 $(TARGET):$(OBJ)
-	gcc -o $@ $? -fpie -pie -z relro -z now -z noexecstack -fsanitize=address 
+	gcc -o $@ $? -lcrypto -lssl -fpie -pie -z relro -z now -z noexecstack -fsanitize=address 
 
 obj/%.o : src/%.c
 	gcc  -Wall -Wextra -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -pie -fsanitize=address 

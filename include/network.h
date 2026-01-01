@@ -5,6 +5,14 @@
 #include "response.h"
 #include "stdint.h"
 
+#define SSL_HD_F 18
+#define SSL_SET_E 19
+#define HANDSHAKE 20
+#define SSL_READ_E 21
+#define SSL_WRITE_E 22
+
+extern SSL_CTX *ctx;
+
 #define MAX_HOST_LT 50
 #define MAX_PT_LT 20
 #define MAX_RESOURCE_LT 1024
