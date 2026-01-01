@@ -53,13 +53,13 @@ int main(int argc, char **argv)
 	if(secure){
 		if(init_SSL(&ctx) == -1){
 			fprintf(stderr,"(%s): cannot start SSL to port 80.\n",prog);
-			start_monitor();
+			stop_monitor();
 			stop_listening(con);
 			return -1;
 		}
 	}
 	int cli_sock = -1;
-	SSL ssl_cli = NULL;
+	SSL *ssl_cli = NULL;
 
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 			if(events[i].data.fd == con){
 				int r = 0;
 				if(secure){
-					if((r = wait_for_connections(con,&cli_sock,&req,&ctx,&ssl_cli)) == -1) break;
+					if((r = wait_for_connections_SSL(con,&cli_sock,&req,&ssl_cli,&ctx)) == -1) break;
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
 				}
@@ -563,6 +563,7 @@ bad_request:
 		}
 	}
 
+	stop_monitor();
 	stop_listening(con);
 	return 0;
 

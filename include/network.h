@@ -4,6 +4,7 @@
 #include "request.h"
 #include "response.h"
 #include "stdint.h"
+#include "openssl/ssl.h"
 
 #define SSL_HD_F 18
 #define SSL_SET_E 19
@@ -22,6 +23,8 @@ struct Url{
 	char resource[MAX_RESOURCE_LT];
 };
 
+int init_SSL(SSL_CTX **ctx);
+int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL **ssl, SSL_CTX **ctx);
 int listen_port_80(uint16_t *port);
 int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);

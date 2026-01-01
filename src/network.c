@@ -14,7 +14,6 @@
 #include <openssl/ssl.h>
 #include "network.h"       
 #include "monitor.h"       
-#include "tls.h"       
 
 char cache_id[] = "wser";
 SSL_CTX *ctx = NULL;
@@ -241,7 +240,7 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL
 		}
 		return -1;
 	}
-	if((*ssl = SSL_new(ctx)) == NULL) {
+	if((*ssl = SSL_new(*ctx)) == NULL) {
 		fprintf(stderr,"error creating SSL handle for new connection.\n");
 		return SSL_HD_F;
 	}
@@ -267,7 +266,7 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL
 				return -1;
 			}
 
-			return HEADER;		
+			return HANDSHAKE;		
 		}else {
 			SSL_free(*ssl);
 			return -1;
@@ -277,7 +276,7 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL
 	size_t bread = 0;
 	int result = 0;
 	/*TODO: use SSL_peek_ex() instead?*/
-	if((result = SSL_read_ex(*ssl,req->base,BASE,&bread)) == 0) {
+	if((result = SSL_read_ex(*ssl,req->req,BASE,&bread)) == 0) {
 		int err = SSL_get_error(*ssl,result);
 		if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 			/* 
