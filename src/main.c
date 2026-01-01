@@ -402,13 +402,15 @@ bad_request:
 				if(events[i].events == EPOLLIN) {
 
 					if(secure){
-						if((r = read_cli_sock_SSL(events[i].data.fd,&req,&cd)) == -1) break;
+						if((r = read_cli_sock_SSL(events[i].data.fd,&req,cds)) == -1) break;
 					}else{
 						if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
 					}
 
 					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || r == SSL_READ_E) continue;
 
+					SSL_free(ssl);
+					ssl = NULL;
 #if USE_FORK 
 					pid_t child = fork();
 					if(child == -1){
