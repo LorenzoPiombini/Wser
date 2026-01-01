@@ -180,6 +180,66 @@ int write_cli_sock(int cli_sock, struct Response *res)
 	return 0;
 }
 
+int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *cd)
+{
+	int i;
+	for(i = 0; i < MAX_CON_DAT_ARR;i++){
+		if(cd[i].fd == cli_sock) break;
+	}
+	
+	if(cd[i].retry_handshake){
+		/*retry handshake*/
+		int r = 0;
+		if((r = cd[i].retry_handshake(cd[i].ssl)) <= 0){ 
+			int err = SSL_get_error(cd[i].ssl,r);
+			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){
+				return HANDSHAKE;	
+			}else{
+				SSL_free(cd[i].ssl);
+				remove_socket_from_monitor(cli_sock);
+				stop_listening(cli_sock);
+				return -1;
+			}
+		}
+		int result;
+		size_t bread = 0;
+		if((result = SSL_read_ex(cd[i].ssl,req->req,BASE,&bread)) == 0) {
+			int err = SSL_get_error(cd[i].ssl,result);
+			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+
+				cd[i].retry_read = SSL_read_ex;
+				return SSL_READ_E; 
+			}else {
+				SSL_free(cd[i].ssl);
+				remove_socket_from_monitor(cli_sock);
+				stop_listening(cli_sock);
+				return -1;
+			}
+		}
+	}
+
+	if(cd[i].retry_read){ 
+		int result;
+		size_t bread = 0;
+		if((result = cd[i].retry_read(cd[i].ssl,req->req,BASE,&bread)) == 0){
+			int err = SSL_get_error(cd[i].ssl,result);
+			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+				cd[i].retry_read = SSL_read_ex;
+				return SSL_READ_E; 
+			}else {
+				SSL_free(cd[i].ssl);
+				remove_socket_from_monitor(cli_sock);
+				stop_listening(cli_sock);
+				return -1;
+			}
+		}
+		if(bread == BASE){
+			/*TODO*/
+		}
+	}
+	return 0;
+}
+
 int read_cli_sock(int cli_sock,struct Request *req)
 {
 	ssize_t bread = 0;	
@@ -200,7 +260,7 @@ int read_cli_sock(int cli_sock,struct Request *req)
 #if USE_HTTPS
 	struct TLS_plain_text plain_text = {0};
 	if(get_TLS_plain_text(&plain_text,(uint8_t*)req->req) == -1){
-			return BAD_REQ;
+		return BAD_REQ;
 	}
 #else
 	if(handle_request(req) == BAD_REQ){
@@ -227,7 +287,7 @@ int read_cli_sock(int cli_sock,struct Request *req)
 	return 0;
 }
 
-int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL **ssl, SSL_CTX **ctx)
+int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,struct Connection_data *cd, SSL **ssl, SSL_CTX **ctx)
 {
 	struct sockaddr cli_info;
 	socklen_t len = sizeof(cli_info);
@@ -266,9 +326,14 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL
 				return -1;
 			}
 
+			cd->fd = *cli_sock;
+			cd->ssl = *ssl;
+			cd->retry_handshake = SSL_accept;
 			return HANDSHAKE;		
 		}else {
 			SSL_free(*ssl);
+			remove_socket_from_monitor(*cli_sock);
+			stop_listening(*cli_sock);
 			return -1;
 		}
 	}
@@ -287,9 +352,14 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req, SSL
 				return -1;
 			}
 
+			cd->fd = *cli_sock;
+			cd->ssl = *ssl;
+			cd->retry_read= SSL_read_ex;
 			return SSL_READ_E; 
 		}else {
 			SSL_free(*ssl);
+			remove_socket_from_monitor(*cli_sock);
+			stop_listening(*cli_sock);
 			return -1;
 		}
 	}

@@ -63,6 +63,11 @@ int main(int argc, char **argv)
 
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
+
+	struct Connection_data cd = {-1,NULL,NULL,NULL};
+	struct Connection_data cds[MAX_CON_DAT_ARR];
+	memset(cds,0,sizeof(cd)*MAX_CON_DAT_ARR);
+
 	for(;;){
 		if((nfds = monitor_events()) == -1) break;	
 		if(nfds == EINTR) continue;
@@ -74,7 +79,7 @@ int main(int argc, char **argv)
 			if(events[i].data.fd == con){
 				int r = 0;
 				if(secure){
-					if((r = wait_for_connections_SSL(con,&cli_sock,&req,&ssl_cli,&ctx)) == -1) break;
+					if((r = wait_for_connections_SSL(con,&cli_sock,&req,cds,&ssl_cli,&ctx)) == -1) break;
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
 				}
@@ -397,8 +402,13 @@ bad_request:
 				printf("sock nr %d\n",events[i].data.fd);
 				if(events[i].events == EPOLLIN) {
 
-					if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
-					if(r == EAGAIN || r == EWOULDBLOCK) continue;
+					if(secure){
+						if((r = read_cli_sock_SSL(events[i].data.fd,&req,&cd)) == -1) break;
+					}else{
+						if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
+					}
+
+					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || r == SSL_READ_E) continue;
 
 #if USE_FORK 
 					pid_t child = fork();
