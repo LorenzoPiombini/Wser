@@ -64,9 +64,8 @@ int main(int argc, char **argv)
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
 
-	struct Connection_data cd = {-1,NULL,NULL,NULL};
 	struct Connection_data cds[MAX_CON_DAT_ARR];
-	memset(cds,0,sizeof(cd)*MAX_CON_DAT_ARR);
+	memset(cds,0,sizeof(struct Connection_data)*MAX_CON_DAT_ARR);
 
 	for(;;){
 		if((nfds = monitor_events()) == -1) break;	
