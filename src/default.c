@@ -21,7 +21,22 @@ int check_default_setting()
 	if(getuid() != 0){
 		if(no_su_setting() == -1) return -1;
 	}else{
-		if(chdir(DEF_DIR) == -1) return -1;	
+		if(chdir(DEF_DIR) == -1) {
+			/*make the directory*/
+			if(mkdir(DEF_DIR,S_IFDIR | S_IRWXU) == -1){
+				fprintf(stderr,"(%s:)cannot setup default folder.\n",prog);
+				return -1;
+			}
+
+			FILE *fp = fopen(INDEX_FILE,"w");
+			if(!fp){
+				fprintf(stderr,"(%s): cannot create sample home page",prog);	
+				return -1;
+			}
+			fputs(INDEX_CNT,fp);
+			fclose(fp);
+			return 0;
+		}
 	}
 
 
