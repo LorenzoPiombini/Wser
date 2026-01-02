@@ -23,7 +23,7 @@ int main(int argc, char **argv)
 	int secure = 0;
 	if(argc > 2) goto client; 
 
-	if(*argv[1] == 's') secure = 1;
+	if(argc > 1 && *argv[1] == 's') secure = 1;
 
 	if(check_default_setting() == -1){
 		fprintf(stderr,"(%s): cannot start the server, configuration issue.",prog);
@@ -32,7 +32,7 @@ int main(int argc, char **argv)
 
 	/*start listening on port 80*/
 	int con = -1;
-	uint16_t port = 80;
+	uint16_t port = secure ? 443 : 80;
 	if((con = listen_port_80(&port)) == -1){
 		fprintf(stderr,"(%s): cannot listen to port 80.\n",prog);
 		return -1;
@@ -88,7 +88,6 @@ int main(int argc, char **argv)
 						r == HANDSHAKE 		|| 
 						r == SSL_READ_E) continue;
 					
-				SSL_free(ssl_cli);
 #if USE_FORK
 				pid_t child = fork();
 				if(child == -1){
@@ -410,8 +409,6 @@ bad_request:
 
 					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || r == SSL_READ_E) continue;
 
-					SSL_free(ssl_cli);
-					ssl_cli = NULL;
 #if USE_FORK 
 					pid_t child = fork();
 					if(child == -1){

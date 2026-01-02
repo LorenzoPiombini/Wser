@@ -180,11 +180,6 @@ int write_cli_sock(int cli_sock, struct Response *res)
 	return 0;
 }
 
-int clear_connection_data(struct Connection_data *cd)
-{
-		
-
-}
 int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *cd)
 {
 	int i;
@@ -206,7 +201,6 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			}else{
 				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
-				stop_listening(cli_sock);
 				return -1;
 			}
 		}
@@ -215,16 +209,21 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 		if((result = SSL_read_ex(cd[i].ssl,req->req,BASE,&bread)) == 0) {
 			int err = SSL_get_error(cd[i].ssl,result);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-
 				cd[i].retry_read = SSL_read_ex;
 				return SSL_READ_E; 
 			}else {
 				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
-				stop_listening(cli_sock);
 				return -1;
 			}
 		}
+		/*clear the connection data*/
+		SSL_free(cd[i].ssl);
+		cd[i].fd = -1;
+		cd[i].ssl = NULL;
+		cd[i].retry_handshake = NULL;
+		cd[i].retry_read = NULL;
+		return 0;
 	}
 
 	if(cd[i].retry_read){ 
@@ -235,16 +234,23 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 				cd[i].retry_read = SSL_read_ex;
 				return SSL_READ_E; 
-			}else {
+			}else{
 				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
-				stop_listening(cli_sock);
 				return -1;
 			}
 		}
+
 		if(bread == BASE){
-			/*TODO*/
+			/*TODO: read the socket again*/
 		}
+		/*clear the connection data*/
+		SSL_free(cd[i].ssl);
+		cd[i].fd = -1;
+		cd[i].ssl = NULL;
+		cd[i].retry_handshake = NULL;
+		cd[i].retry_read = NULL;
+		return 0;
 	}
 	return 0;
 }
