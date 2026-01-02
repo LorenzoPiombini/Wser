@@ -43,6 +43,7 @@ static void handler(int signo)
 		stop_monitor();	
 		stop_listening(hdl_sock);
 		if(ctx) SSL_CTX_free(ctx);
+		clean_connecion_data(cds);
 		if(signo == SIGINT)
 			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGINT");
 		else if(signo== SIGPIPE)

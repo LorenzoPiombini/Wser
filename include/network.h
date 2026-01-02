@@ -32,6 +32,8 @@ struct Connection_data{
 	int (*retry_handshake)(SSL *);
 };
 
+extern struct Connection_data cds[MAX_CON_DAT_ARR];
+
 int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,
 								int *cli_sock, 

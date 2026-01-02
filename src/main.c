@@ -58,14 +58,12 @@ int main(int argc, char **argv)
 			return -1;
 		}
 	}
+
 	int cli_sock = -1;
 	SSL *ssl_cli = NULL;
 
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
-
-	struct Connection_data cds[MAX_CON_DAT_ARR];
-	memset(cds,0,sizeof(struct Connection_data)*MAX_CON_DAT_ARR);
 
 	for(;;){
 		if((nfds = monitor_events()) == -1) break;	

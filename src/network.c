@@ -24,6 +24,8 @@ static int parse_URL(char *URL, struct Url *url);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
+struct Connection_data cds[MAX_CON_DAT_ARR] = {0};
+
 int init_SSL(SSL_CTX **ctx){
 	long opts;
 
