@@ -88,6 +88,7 @@ int main(int argc, char **argv)
 						r == HANDSHAKE 		|| 
 						r == SSL_READ_E) continue;
 					
+				SSL_free(ssl_cli);
 #if USE_FORK
 				pid_t child = fork();
 				if(child == -1){
@@ -409,8 +410,8 @@ bad_request:
 
 					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || r == SSL_READ_E) continue;
 
-					SSL_free(ssl);
-					ssl = NULL;
+					SSL_free(ssl_cli);
+					ssl_cli = NULL;
 #if USE_FORK 
 					pid_t child = fork();
 					if(child == -1){
