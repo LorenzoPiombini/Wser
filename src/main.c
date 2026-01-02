@@ -119,11 +119,13 @@ int main(int argc, char **argv)
 								//clear_response(&res);
 								stop_listening(cli_sock);
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(0);
 							}
 							//clear_response(&res);
 							stop_listening(cli_sock);
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(1);
 
 #else
@@ -137,11 +139,13 @@ int main(int argc, char **argv)
 						clear_response(&res);
 						stop_listening(cli_sock);
 						if(secure) SSL_CTX_free(ctx);
+						clean_connecion_data(cds);
 						exit(0);
 #else
 						remove_socket_from_monitor(cli_sock);
 						clear_request(&req);
 						clear_response(&res);
+						clean_connecion_data(cds);
 						continue;
 #endif
 					}
@@ -171,6 +175,7 @@ int main(int argc, char **argv)
 										clear_request(&req);
 										clear_content(&cont);
 										if(secure) SSL_CTX_free(ctx);
+										clean_connecion_data(cds);
 										exit(0);
 									}
 
@@ -178,6 +183,7 @@ int main(int argc, char **argv)
 									clear_content(&cont);
 									stop_listening(cli_sock);
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(1);
 								}
 
@@ -185,11 +191,13 @@ int main(int argc, char **argv)
 									clear_content(&cont);
 									stop_listening(cli_sock);
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(1);
 #else
 									clear_request(&req);
 									clear_content(&cont);
 									remove_socket_from_monitor(cli_sock);
+									clean_connecion_data(cds);
 									continue;
 #endif
 #if USE_FORK
@@ -197,12 +205,14 @@ int main(int argc, char **argv)
 								clear_request(&req);
 								clear_content(&cont);
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(0);
 
 #else 
 								clear_request(&req);
 								clear_content(&cont);
 								remove_socket_from_monitor(cli_sock);
+								clean_connecion_data(cds);
 								continue;
 #endif
 							}
@@ -213,6 +223,7 @@ int main(int argc, char **argv)
 #if USE_FORK
 								SSL_CTX_free(ctx);
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(1);
 #endif
 							}
@@ -236,16 +247,19 @@ int main(int argc, char **argv)
 									clear_request(&req);
 									clear_response(&res);
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(0);
 								}
 								clear_request(&req);
 								clear_response(&res);
 								stop_listening(cli_sock);
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(1);
 #else
 								clear_request(&req);
 								remove_socket_from_monitor(cli_sock);
+								clean_connecion_data(cds);
 								continue;
 #endif
 
@@ -262,9 +276,11 @@ int main(int argc, char **argv)
 
 							stop_listening(cli_sock);
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(0);
 #else
 							remove_socket_from_monitor(cli_sock);
+							clean_connecion_data(cds);
 							break;
 #endif
 						case OPTIONS:
@@ -293,12 +309,14 @@ bad_request:
 											stop_listening(cli_sock);
 											clear_request(&req);
 											if(secure) SSL_CTX_free(ctx);
+											clean_connecion_data(cds);
 											exit(0);
 										}
 
 										stop_listening(cli_sock);
 										clear_request(&req);
 										if(secure) SSL_CTX_free(ctx);
+										clean_connecion_data(cds);
 										exit(1);
 #else
 										remove_socket_from_monitor(cli_sock);
@@ -313,9 +331,11 @@ bad_request:
 #if USE_FORK
 								stop_listening(cli_sock);
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(0);
 #else 
 								remove_socket_from_monitor(cli_sock);
+								clean_connecion_data(cds);
 								continue;
 #endif
 
@@ -340,22 +360,27 @@ bad_request:
 									stop_listening(cli_sock);
 									clear_response(&res);
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(0);
 								}
 #else
 								remove_socket_from_monitor(cli_sock);
+								clean_connecion_data(cds);
 								continue;
 #endif
 							}
 
 							clear_response(&res);
+							clean_connecion_data(cds);
 
 #if USE_FORK
 							stop_listening(cli_sock);
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(0);
 #else
 							remove_socket_from_monitor(cli_sock);
+							clean_connecion_data(cds);
 							continue;
 #endif
 						}
@@ -383,11 +408,13 @@ bad_request:
 									stop_listening(cli_sock);
 									clear_request(&req);
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(0);
 								}
 								stop_listening(cli_sock);
 								clear_request(&req);
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(1);
 #else
 								remove_socket_from_monitor(cli_sock);
@@ -401,6 +428,7 @@ bad_request:
 #if USE_FORK
 							stop_listening(cli_sock);
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(0);
 #else 
 							remove_socket_from_monitor(cli_sock);
@@ -413,6 +441,7 @@ bad_request:
 				remove_socket_from_monitor(cli_sock);
 				stop_listening(cli_sock);
 				clear_request(&req);
+				clean_connecion_data(cds);
 				continue;
 
 			}else{ /*SECOND BRANCH*/
@@ -444,6 +473,7 @@ bad_request:
 							/*send a bed request response*/
 #if USE_FORK
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(1);
 #else
 							continue;
@@ -479,9 +509,11 @@ bad_request:
 									clear_request(&req);
 									if(ws){
 										if(secure) SSL_CTX_free(ctx);
+										clean_connecion_data(cds);
 										exit(0);
 									}
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(1);
 #else
 									clear_request(&req);
@@ -494,6 +526,7 @@ bad_request:
 								/*server error 500*/
 #if USE_FORK 
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(0);
 #else 
 								continue;
@@ -519,12 +552,14 @@ bad_request:
 									stop_listening(events[i].data.fd);
 									clear_response(&res);		
 									if(secure) SSL_CTX_free(ctx);
+									clean_connecion_data(cds);
 									exit(0);
 								}
 
 								stop_listening(events[i].data.fd);
 								clear_response(&res);		
 								if(secure) SSL_CTX_free(ctx);
+								clean_connecion_data(cds);
 								exit(1);
 #else 
 								continue;
@@ -552,6 +587,7 @@ bad_request:
 							/*send a bad request response*/
 #if USE_FORK
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(0);
 #else
 							continue;
@@ -560,6 +596,7 @@ bad_request:
 					}
 					/*parent*/
 					remove_socket_from_monitor(events[i].data.fd);
+					clean_connecion_data(cds);
 					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
@@ -577,12 +614,14 @@ bad_request:
 							clear_response(&res);
 							stop_listening(events[i].data.fd);
 							if(secure) SSL_CTX_free(ctx);
+							clean_connecion_data(cds);
 							exit(0);
 						}
 
 						stop_listening(events[i].data.fd);
 						clear_request(&req);
 						if(secure) SSL_CTX_free(ctx);
+						clean_connecion_data(cds);
 						exit(1);
 #else
 						clear_request(&req);
@@ -594,6 +633,7 @@ bad_request:
 #if USE_FORK
 					stop_listening(events[i].data.fd);
 					if(secure) SSL_CTX_free(ctx);
+					clean_connecion_data(cds);
 					exit(0);
 #else
 					break;
@@ -606,6 +646,7 @@ bad_request:
 	stop_monitor();
 	stop_listening(con);
 	if(secure) SSL_CTX_free(ctx);
+	clean_connecion_data(cds);
 	return 0;
 
 client:

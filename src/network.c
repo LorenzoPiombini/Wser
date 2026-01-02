@@ -180,6 +180,16 @@ int write_cli_sock(int cli_sock, struct Response *res)
 	return 0;
 }
 
+void clean_connecion_data(struct Connection_data *cd)
+{
+	int i;
+	for(i = 0; i < MAX_CON_DAT_ARR; i++){
+		if(cd[i].ssl) SSL_free(cd[i].ssl);
+		cd[i].retry_read = NULL;
+		cd[i].retry_handshake = NULL;
+	}
+
+}
 int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *cd)
 {
 	int i;

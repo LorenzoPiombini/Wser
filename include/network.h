@@ -41,6 +41,7 @@ int wait_for_connections_SSL(int sock_fd,
 								SSL_CTX **ctx);
 
 int listen_port_80(uint16_t *port);
+void clean_connecion_data(struct Connection_data *cd);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);
