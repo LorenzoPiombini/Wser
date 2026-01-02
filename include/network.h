@@ -47,6 +47,7 @@ void clean_connecion_data(struct Connection_data *cd);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);
+int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd);
 int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req);
 int get(char *URL);
 void stop_listening(int sock_fd);

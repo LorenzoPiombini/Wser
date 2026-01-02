@@ -13,6 +13,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include "network.h"       
+#include "response.h"       
 #include "monitor.h"       
 
 char cache_id[] = "wser";
@@ -121,6 +122,90 @@ sock_setup:
 	return sock_fd;
 }
 
+int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd)
+{
+	int i;
+	for(i = 0; i < MAX_CON_DAT_ARR; i++){
+		if(cd[i].fd == cli_sock) break;
+	}
+
+	if(i >= MAX_CON_DAT_ARR) return -1;
+
+	size_t l = strlen(res->header_str);
+	size_t buff_l = res->body.size + l + 1;
+	char *buff = NULL;
+	if( buff_l >= STD_HD_L){
+		errno = 0;
+		buff = calloc(buff_l,sizeof(char));
+		if(!buff){
+			if(errno == ENOMEM)
+				fprintf(stderr,"(%s): not enough memory.\n",prog);	
+			else 
+				fprintf(stderr,"(%s): calloc() failed %s:%d.\n",prog,__FILE__,__LINE__);	
+
+			return -1;
+		}
+
+		strncpy(buff,res->header_str,strlen(res->header_str));
+		if(res->body.d_cont){
+			strncat(buff,res->body.d_cont,res->body.size);
+		}else{
+			if(res->body.size > 0)
+				strncat(buff,res->body.content,res->body.size);
+		}
+	} else {
+		if(res->body.size > 0)
+			strncat(res->header_str,res->body.content,res->body.size);
+	}
+
+
+	if(!buff){
+		size_t bwritten;
+		int r = 0;
+		if((r = SSL_write_ex(cd[i].ssl,res->header_str,strlen(res->header_str),&bwritten)) == 0){
+			int err = SSL_get_error(cd[i].ssl,r);
+			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1){
+					SSL_free(cd[i].ssl);
+					remove_socket_from_monitor(cli_sock);
+					return -1;
+				}
+				return SSL_WRITE_E;
+			}else{
+				SSL_free(cd[i].ssl);
+				remove_socket_from_monitor(cli_sock);
+				cd[i].fd = -1;
+				return -1;
+			}
+			fprintf(stderr,"(%s): cannot write to socket.\n",prog);
+			return -1;
+		}
+	}else{
+		size_t bwritten;
+		int r = 0;
+		if((r = SSL_write_ex(cd[i].ssl,buff,strlen(buff),&bwritten)) == 0){
+			int err = SSL_get_error(cd[i].ssl,r);
+			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) return -1;
+				free(buff);
+				return SSL_WRITE_E;
+			}
+
+			free(buff);
+			fprintf(stderr,"(%s): cannot write to socket.\n",prog);
+			return -1;
+		}else{
+			SSL_free(cd[i].ssl);
+			remove_socket_from_monitor(cli_sock);
+			cd[i].fd = -1;
+			free(buff);
+			return -1;
+		}
+
+		free(buff);
+	}
+	return 0;
+}
 int write_cli_sock(int cli_sock, struct Response *res)
 {
 

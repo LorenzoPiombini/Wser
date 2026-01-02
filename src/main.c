@@ -103,15 +103,30 @@ int main(int argc, char **argv)
 						if(generate_response(&res,400,NULL,&req) == -1) break;
 
 						int w = 0;
-						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-						if(w == EAGAIN || w == EWOULDBLOCK){
+						if(secure){
+							if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+						}else{
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						}
+						if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 							uint8_t ws = 0;
-							while((w = write_cli_sock(cli_sock,&res) != -1)){
-								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+							if(secure){
+								while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+									if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
-								ws = 1;
-								break;
+									ws = 1;
+									break;
+								}
+
+							}else{
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
 							}
 							if(ws){
 								//clear_response(&res);
@@ -132,7 +147,6 @@ int main(int argc, char **argv)
 						}
 
 #if USE_FORK
-
 						clear_request(&req);
 						clear_response(&res);
 						stop_listening(cli_sock);
@@ -158,16 +172,32 @@ int main(int argc, char **argv)
 								if(generate_response(&res,404,NULL,&req) == -1) break;
 
 								int w = 0;
-								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-								if(w == EAGAIN || w == EWOULDBLOCK) {
+								if(secure){
+									if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+								}else{
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								}
+								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 									uint8_t ws = 0;
-									while((w = write_cli_sock(cli_sock,&res)) != -1){
-										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+									if(secure){
+										while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+											if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
-										ws = 1;
-										break;
+											ws = 1;
+											break;
+										}
+
+									}else{
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+											ws = 1;
+											break;
+										}
+
 									}
+
 									if(ws){
 										stop_listening(cli_sock);
 										clear_request(&req);
@@ -228,18 +258,31 @@ int main(int argc, char **argv)
 
 							clear_content(&cont);
 							int w = 0;
-							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-
-							if(w == EAGAIN || w == EWOULDBLOCK) {
+							if(secure){
+								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+							}else{
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							}
+							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 								uint8_t ws = 0;
-								while((w = write_cli_sock(cli_sock,&res)) != -1){
-									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+								if(secure){
+									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
-									ws = 1;
-									break;
+										ws = 1;
+										break;
+									}
+
+								}else{
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
 								}
-
 								if(ws){
 									stop_listening(cli_sock);
 									clear_request(&req);
@@ -293,16 +336,31 @@ bad_request:
 									if(generate_response(&res,400,NULL,&req) == -1) break;
 
 									int w = 0;
-									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-									if(w == EAGAIN || w == EWOULDBLOCK) {
+									if(secure){
+										if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+									}else{
+										if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									}
+									if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 										uint8_t ws = 0;
-										while((w = write_cli_sock(cli_sock,&res)) != -1){
-											if(w == EAGAIN || w == EWOULDBLOCK) continue;
-											ws = 1;
-											break;
-										}
+										if(secure){
+											while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+												if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
+												ws = 1;
+												break;
+											}
+
+										}else{
+											while((w = write_cli_sock(cli_sock,&res) != -1)){
+												if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+												ws = 1;
+												break;
+											}
+
+										}
 										if(ws){
 											stop_listening(cli_sock);
 											clear_request(&req);
@@ -344,16 +402,31 @@ bad_request:
 
 							clear_request(&req);
 							int w = 0;
-							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-							if(w == EAGAIN || w == EWOULDBLOCK) {
+							if(secure){
+								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+							}else{
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							}
+							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 								uint8_t ws = 0;
-								while((w = write_cli_sock(cli_sock,&res)) != -1){
-									if(w == EAGAIN || w == EWOULDBLOCK)continue;
+								if(secure){
+									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
-									ws = 1;
-									break;
-								}
+										ws = 1;
+										break;
+									}
+
+									}else{
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+											ws = 1;
+											break;
+										}
+
+									}
 								if(ws){
 									stop_listening(cli_sock);
 									clear_response(&res);
@@ -391,15 +464,30 @@ bad_request:
 
 							clear_request(&req);
 							int w = 0;
-							if((w = write_cli_sock(cli_sock,&res)) == -1) break;
-							if(w == EAGAIN || w == EWOULDBLOCK) {
+							if(secure){
+								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+							}else{
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							}
+							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 								uint8_t ws = 0;
-								while((w = write_cli_sock(cli_sock,&res)) != -1){
-									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+								if(secure){
+									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
-									ws = 1;
-									break;
+										ws = 1;
+										break;
+									}
+
+								}else{
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
 								}
 
 								if(ws){
@@ -439,7 +527,7 @@ bad_request:
 				remove_socket_from_monitor(cli_sock);
 				stop_listening(cli_sock);
 				clear_request(&req);
-				clean_connecion_data(cds);
+				/*TODO: ?? do i need this?? clean_connecion_data(cds);*/
 				continue;
 
 			}else{ /*SECOND BRANCH*/
@@ -494,16 +582,31 @@ bad_request:
 								clear_request(&req);
 								printf("header is \n%s\n",res.header_str);
 								int w = 0;
-								if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-								if(w == EAGAIN || w == EWOULDBLOCK) {
+								if(secure){
+									if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+								}else{
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								}
+								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 									uint8_t ws = 0;
-									while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
-										if(w == EAGAIN || w == EWOULDBLOCK) continue;
-										ws = 1;
-										break;
-									}
+									if(secure){
+										while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+											if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
+											ws = 1;
+											break;
+										}
+
+									}else{
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+											ws = 1;
+											break;
+										}
+
+									}
 									clear_request(&req);
 									if(ws){
 										if(secure) SSL_CTX_free(ctx);
@@ -535,15 +638,30 @@ bad_request:
 							printf("2nd branch: response header is\n%s\n",res.header_str);
 							printf("writing to client.\n");
 							int w = 0;
-							if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-
-							if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK 
+							if(secure){
+								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+							}else{
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							}
+							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+#if USE_FORK
 								uint8_t ws = 0;
-								while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
-									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+								if(secure){
+									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+
 										ws = 1;
 										break;
+									}
+
+								}else{
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
 								}
 
 								if(ws){
@@ -594,20 +712,36 @@ bad_request:
 					}
 					/*parent*/
 					remove_socket_from_monitor(events[i].data.fd);
-					clean_connecion_data(cds);
+					/*TODO: ?? do i need this?? clean_connecion_data(cds);*/
 					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
-					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
-					if(w == EAGAIN || w == EWOULDBLOCK) {
-#if USE_FORK								
+					if(secure){
+						if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+					}else{
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+					}
+					if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+#if USE_FORK
 						uint8_t ws = 0;
-						while((w = write_cli_sock(events[i].data.fd,&res)) == -1) {
-							if(w == EAGAIN || w == EWOULDBLOCK) continue;
+						if(secure){
+							while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
 
-							ws = 1;
-							break;
+								ws = 1;
+								break;
+							}
+
+						}else{
+							while((w = write_cli_sock(cli_sock,&res) != -1)){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+
 						}
+
 						if(ws){
 							clear_response(&res);
 							stop_listening(events[i].data.fd);
