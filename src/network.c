@@ -180,12 +180,21 @@ int write_cli_sock(int cli_sock, struct Response *res)
 	return 0;
 }
 
+int clear_connection_data(struct Connection_data *cd)
+{
+		
+
+}
 int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *cd)
 {
 	int i;
 	for(i = 0; i < MAX_CON_DAT_ARR;i++){
 		if(cd[i].fd == cli_sock) break;
 	}
+
+	if(i >= MAX_CON_DAT_ARR){
+		return -1;
+	}	
 	
 	if(cd[i].retry_handshake){
 		/*retry handshake*/
