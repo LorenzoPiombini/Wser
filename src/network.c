@@ -438,9 +438,19 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,stru
 				return -1;
 			}
 
-			cd->fd = *cli_sock;
-			cd->ssl = *ssl;
-			cd->retry_handshake = SSL_accept;
+			int i;
+			for(i = 0; i < MAX_CON_DAT_ARR;i++){
+				if(cd[i].fd == 0 || cd[i].fd == -1){
+					cd[i].fd = *cli_sock;
+					cd[i].ssl = *ssl;
+					cd[i].retry_handshake = SSL_accept;
+					break;
+				}
+			}
+			if(i >= MAX_CON_DAT_ARR){
+				fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
+				return -1;
+			}
 			return HANDSHAKE;		
 		}else {
 			SSL_free(*ssl);
@@ -464,9 +474,19 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,stru
 				return -1;
 			}
 
-			cd->fd = *cli_sock;
-			cd->ssl = *ssl;
-			cd->retry_read= SSL_read_ex;
+			int i;
+			for(i = 0; i < MAX_CON_DAT_ARR;i++){
+				if(cd[i].fd == 0 || cd[i].fd == -1){
+					cd[i].fd = *cli_sock;
+					cd[i].ssl = *ssl;
+					cd[i].retry_handshake = SSL_accept;
+					break;
+				}
+			}
+			if(i >= MAX_CON_DAT_ARR){
+				fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
+				return -1;
+			}
 			return SSL_READ_E; 
 		}else {
 			SSL_free(*ssl);
