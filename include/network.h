@@ -12,6 +12,7 @@
 #define SSL_READ_E 21
 #define SSL_WRITE_E 22
 #define NO_CON_DATA 23
+#define INT_PROC_SOCK_SSL "/tmp/TLS_SSL_operation.socket"
 
 extern SSL_CTX *ctx;
 
@@ -36,14 +37,9 @@ struct Connection_data{
 extern struct Connection_data cds[MAX_CON_DAT_ARR];
 
 int init_SSL(SSL_CTX **ctx);
-int wait_for_connections_SSL(int sock_fd,
-								int *cli_sock, 
-								struct Request *req,
-								struct Connection_data *cd,
-								SSL **ssl, 
-								SSL_CTX **ctx);
-
+int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
+int listen_UNIX_socket();
 void clean_connecion_data(struct Connection_data *cd);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);

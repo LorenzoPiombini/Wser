@@ -12,6 +12,8 @@
 #include "default.h"
 #include "handlesig.h"
 #include "response.h"
+#include "ssl_process.h"
+
 
 
 char prog[] = "wser";
@@ -76,7 +78,20 @@ int main(int argc, char **argv)
 			if(events[i].data.fd == con){
 				int r = 0;
 				if(secure){
-					if((r = wait_for_connections_SSL(con,&cli_sock,&req,cds,&ssl_cli,&ctx)) == -1) break;
+					if((r = wait_for_connections_SSL(con,&cli_sock)) == -1) break;
+					/*start SSL handle processs*/
+					pid_t ssl_handle_child = fork();
+					if(ssl_handle_child == -1){
+
+					}else{
+						/*child*/
+						SSL_work_process(cds,cli_sock,&req,&ssl_cli,&ctx);
+						SSL_CTX_free(ctx);
+						clean_connecion_data(cds);
+						exit(0);
+					}
+
+					/*parent*/
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
 				}

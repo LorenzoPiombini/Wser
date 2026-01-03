@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <netdb.h>
 #include <errno.h>
 #include <ifaddrs.h>
@@ -119,6 +120,31 @@ sock_setup:
 	}
 
 	return sock_fd;
+}
+
+int listen_UNIX_socket() 
+{
+	
+	struct sockaddr_un address_socket_family;
+	memset(&address_socket_family,0,sizeof(struct sockaddr_un));
+
+	int sock_un = socket(AF_UNIX,SOCK_SEQPACKET,0);
+	if(sock_un == -1) return -1;
+	
+	/*bind to a file_path*/
+	address_socket_family.sun_family = AF_UNIX;
+	strncpy(address_socket_family.sun_path,INT_PROC_SOCK_SSL,strlen(INT_PROC_SOCK_SSL)+1);	
+
+	unlink(INT_PROC_SOCK_SSL);
+	int result = bind(sock_un,(const struct sockaddr *) &address_socket_family,sizeof(address_socket_family));
+	if(result == -1) return -1;
+
+	/*listen socket*/
+	if(listen(sock_un,20) == -1) return -1;
+	
+
+	return sock_un;
+
 }
 
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd)
@@ -438,7 +464,7 @@ int read_cli_sock(int cli_sock,struct Request *req)
 	return 0;
 }
 
-int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,struct Connection_data *cd, SSL **ssl, SSL_CTX **ctx)
+int wait_for_connections_SSL(int sock_fd,int *cli_sock)
 {
 	struct sockaddr cli_info;
 	socklen_t len = sizeof(cli_info);
@@ -451,108 +477,8 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,stru
 		}
 		return -1;
 	}
-	if((*ssl = SSL_new(*ctx)) == NULL) {
-		fprintf(stderr,"error creating SSL handle for new connection.\n");
-		return SSL_HD_F;
-	}
 
-	if(!SSL_set_fd(*ssl,*cli_sock)) {
-		fprintf(stderr,"error setting socket to SSL context.\n");
-		SSL_free(*ssl);
-		return SSL_SET_E;		
-	}		
-
-	/*try handshake with the client*/	
-	int hs_res = 0;
-	if((hs_res = SSL_accept(*ssl)) <= 0) {
-		int err = SSL_get_error(*ssl,hs_res);
-		if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-			/* 
-			 * socket is not ready
-			 * so we add the file descriptor to the epoll system
-			 * and return;
-			 * */
-			if((add_socket_to_monitor(*cli_sock,EPOLLIN | EPOLLET)) == -1) {
-				SSL_free(*ssl);
-				return -1;
-			}
-
-			int i;
-			for(i = 0; i < MAX_CON_DAT_ARR;i++){
-				if(cd[i].fd == 0 || cd[i].fd == -1){
-					cd[i].fd = *cli_sock;
-					cd[i].ssl = *ssl;
-					cd[i].retry_handshake = SSL_accept;
-					break;
-				}
-			}
-			if(i >= MAX_CON_DAT_ARR){
-				fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
-				return -1;
-			}
-			return HANDSHAKE;		
-		}else {
-			fprintf(stderr,"the error happens when trying handshake first time\n");
-			ERR_print_errors_fp(stderr);
-			SSL_free(*ssl);
-			remove_socket_from_monitor(*cli_sock);
-			stop_listening(*cli_sock);
-			return -1;
-		}
-	}
-
-	size_t bread = 0;
-	int result = 0;
-	/*TODO: use SSL_peek_ex() instead?*/
-	if((result = SSL_read_ex(*ssl,req->req,BASE,&bread)) == 0) {
-		int err = SSL_get_error(*ssl,result);
-		if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-			/* 
-			 * socket is not ready add the file descriptor to the epoll system
-			 * */
-			if((add_socket_to_monitor(*cli_sock,EPOLLIN | EPOLLET)) == -1) {
-				SSL_free(*ssl);
-				return -1;
-			}
-
-			int i;
-			for(i = 0; i < MAX_CON_DAT_ARR;i++){
-				if(cd[i].fd == 0 || cd[i].fd == -1){
-					cd[i].fd = *cli_sock;
-					cd[i].ssl = *ssl;
-					cd[i].retry_read = SSL_read_ex;
-					break;
-				}
-			}
-			if(i >= MAX_CON_DAT_ARR){
-				fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
-				return -1;
-			}
-			return SSL_READ_E; 
-		}else {
-			SSL_free(*ssl);
-			remove_socket_from_monitor(*cli_sock);
-			stop_listening(*cli_sock);
-			return -1;
-		}
-	}
-
-	if(bread == BASE){
-		/*
-		 * TODO: read again the socket,
-		 * req is bigger than BASE = (1024 bytes)*/
-	}
-	/* DEL THIS*/
-	int e = 0;
-	if(( e = read_cli_sock(*cli_sock,req)) == -1){
-		fprintf(stderr,"(%s): cannot read data from socket",prog);
-		return -1;
-	}
-
-	if( e == EAGAIN || e == EWOULDBLOCK || e == BAD_REQ) return e;
-	/**/
-
-	return 0;	
+	return 0;
 }
 
 int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req)
