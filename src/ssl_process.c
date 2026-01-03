@@ -51,13 +51,22 @@ int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req
 							if( w == SSL_WRITE_E) continue;
 						}
 
+						clear_response(&res);
+						clear_request(req);
+						clear_content(&cont);
 						return 0;
 					}
+					clear_response(&res);
+					clear_request(req);
+					clear_content(&cont);
+					return 0;
 				}
 
 				/*send 200 response*/
 				if(generate_response(&res,OK,&cont,req) == -1) {
 					clear_content(&cont);
+					clear_response(&res);
+					clear_request(req);
 					return 0;
 				}
 
@@ -74,6 +83,8 @@ int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req
 					clear_response(&res);
 					return 0;
 				}
+				clear_request(req);
+				clear_response(&res);
 				return 0;
 			}
 			default:
@@ -92,6 +103,7 @@ int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req
 					if( w == SSL_WRITE_E) continue;
 				}
 			}
+			clear_response(&res);
 			return 0;
 		}
 		case SSL_SET_E:
@@ -103,7 +115,6 @@ int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req
 			break;
 		}
 	}
-
 	return 0;
 }
 
