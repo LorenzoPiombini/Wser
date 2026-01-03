@@ -54,7 +54,7 @@ int main(int argc, char **argv)
 	
 	if(secure){
 		if(init_SSL(&ctx) == -1){
-			fprintf(stderr,"(%s): cannot start SSL to port 80.\n",prog);
+			fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 			stop_monitor();
 			stop_listening(con);
 			return -1;
