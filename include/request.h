@@ -1,5 +1,5 @@
 #ifndef _REQUEST_H_
-#define _REQUEST_H_
+#define _REQUEST_H_ 1
 
 #define STD_REQ_BDY_CNT	8192
 #define MIN_HEAD_FIELD 50

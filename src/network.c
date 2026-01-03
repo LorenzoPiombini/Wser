@@ -59,13 +59,12 @@ int init_SSL(SSL_CTX **ctx){
 
 	/*apply the selction options */
 	SSL_CTX_set_options(*ctx, opts);
-
-	if(SSL_CTX_use_certificate_chain_file(*ctx,"/path/to/your/fullchain.pem") <= 0 ) {
+	if(SSL_CTX_use_certificate_chain_file(*ctx,"/etc/letsencrypt/live/lorenzopiombini.com/fullchain.pem") <= 0 ) {
 		fprintf(stderr,"error use certificate.\n");
 		return -1;
 	}
 
-	if(SSL_CTX_use_PrivateKey_file(*ctx, "path/to/yours/privkey.pem",SSL_FILETYPE_PEM) <= 0) {
+	if(SSL_CTX_use_PrivateKey_file(*ctx, "/etc/letsencrypt/live/lorenzopiombini.com/privkey.pem",SSL_FILETYPE_PEM) <= 0) {
 		fprintf(stderr,"error use privatekey ");
 		return -1;
 	}
@@ -285,7 +284,7 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 	}
 
 	if(i >= MAX_CON_DAT_ARR){
-		return -1;
+		return NO_CON_DATA;
 	}	
 	
 	if(cd[i].retry_handshake){
@@ -296,11 +295,18 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){
 				return HANDSHAKE;	
 			}else{
+				fprintf(stderr,"the error happens when retrying handshake\n");
+				ERR_print_errors_fp(stderr);
 				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
+				cd[i].fd = -1;
+				cd[i].ssl = NULL;
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
 				return -1;
 			}
 		}
+		cd[i].retry_handshake = NULL;
 		int result;
 		size_t bread = 0;
 		if((result = SSL_read_ex(cd[i].ssl,req->req,BASE,&bread)) == 0) {
@@ -308,18 +314,29 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 				cd[i].retry_read = SSL_read_ex;
 				return SSL_READ_E; 
-			}else {
+			}else if (bread == BASE){
+				fprintf(stderr,"the issue is not enogh space in the buffer\n");
+				ERR_print_errors_fp(stderr);
 				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
+				cd[i].fd = -1;
+				cd[i].ssl = NULL;
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
+				return -1;
+			}else{
+				fprintf(stderr,"the error happens when reading SSL after handshake\n");
+				ERR_print_errors_fp(stderr);
+				SSL_free(cd[i].ssl);
+				remove_socket_from_monitor(cli_sock);
+				cd[i].fd = -1;
+				cd[i].ssl = NULL;
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
 				return -1;
 			}
 		}
 		/*clear the connection data*/
-		SSL_free(cd[i].ssl);
-		cd[i].fd = -1;
-		cd[i].ssl = NULL;
-		cd[i].retry_handshake = NULL;
-		cd[i].retry_read = NULL;
 		return 0;
 	}
 
@@ -329,24 +346,46 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 		if((result = cd[i].retry_read(cd[i].ssl,req->req,BASE,&bread)) == 0){
 			int err = SSL_get_error(cd[i].ssl,result);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				cd[i].retry_read = SSL_read_ex;
 				return SSL_READ_E; 
 			}else{
+				fprintf(stderr,"the error happens when retrying read\n");
+				ERR_print_errors_fp(stderr);
 				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
+				cd[i].fd = -1;
+				cd[i].ssl = NULL;
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
 				return -1;
 			}
 		}
 
+		cd[i].retry_read = NULL;
 		if(bread == BASE){
+			fprintf(stderr,"buffer is not big enough\n");
 			/*TODO: read the socket again*/
 		}
-		/*clear the connection data*/
-		SSL_free(cd[i].ssl);
-		cd[i].fd = -1;
-		cd[i].ssl = NULL;
-		cd[i].retry_handshake = NULL;
-		cd[i].retry_read = NULL;
+		if(handle_request(req) == BAD_REQ){
+			if(req->method == -1) return BAD_REQ;
+			if(req->size < (ssize_t)BASE) return BAD_REQ;
+
+			if(req->size == (ssize_t)BASE){
+				if(set_up_request(bread,req) == -1) return -1;
+
+				ssize_t move = req->size;
+				if((bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
+					if(errno == EAGAIN || errno == EWOULDBLOCK) {
+						int e = errno;
+						if((add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLET)) == -1) return -1;
+						return e;
+					}
+					fprintf(stderr,"(%s): cannot read data from socket",prog);
+					return -1;
+				}
+			}
+		}
+
+
 		return 0;
 	}
 	return 0;
@@ -453,6 +492,8 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,stru
 			}
 			return HANDSHAKE;		
 		}else {
+			fprintf(stderr,"the error happens when trying handshake first time\n");
+			ERR_print_errors_fp(stderr);
 			SSL_free(*ssl);
 			remove_socket_from_monitor(*cli_sock);
 			stop_listening(*cli_sock);
@@ -479,7 +520,7 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock, struct Request *req,stru
 				if(cd[i].fd == 0 || cd[i].fd == -1){
 					cd[i].fd = *cli_sock;
 					cd[i].ssl = *ssl;
-					cd[i].retry_handshake = SSL_accept;
+					cd[i].retry_read = SSL_read_ex;
 					break;
 				}
 			}

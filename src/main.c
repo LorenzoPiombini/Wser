@@ -542,7 +542,8 @@ bad_request:
 						if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
 					}
 
-					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || r == SSL_READ_E) continue;
+					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || 
+							r == SSL_READ_E || r == NO_CON_DATA) continue;
 
 #if USE_FORK 
 					pid_t child = fork();
@@ -554,7 +555,8 @@ bad_request:
 
 #endif
 					if(child == 0){
-
+						printf("in the child!\n");
+						printf("%s\n",req.req);
 						if(r == BAD_REQ) {
 							/*send a bed request response*/
 #if USE_FORK

@@ -11,6 +11,7 @@
 #define HANDSHAKE 20
 #define SSL_READ_E 21
 #define SSL_WRITE_E 22
+#define NO_CON_DATA 23
 
 extern SSL_CTX *ctx;
 
