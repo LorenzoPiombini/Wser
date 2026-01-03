@@ -28,7 +28,11 @@ int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req
 		case HANDSHAKE:
 		{		
 			r = handle_ssl_steps(cd,cli_sock,req,ssl,ctx);
-			break;
+			if( r == 0){
+				
+			}else{
+				break;
+			}
 		}
 		case 0:
 		{
