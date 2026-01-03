@@ -527,7 +527,7 @@ bad_request:
 				remove_socket_from_monitor(cli_sock);
 				stop_listening(cli_sock);
 				clear_request(&req);
-				/*TODO: ?? do i need this?? clean_connecion_data(cds);*/
+				clean_connecion_data(cds);
 				continue;
 
 			}else{ /*SECOND BRANCH*/
@@ -714,7 +714,7 @@ bad_request:
 					}
 					/*parent*/
 					remove_socket_from_monitor(events[i].data.fd);
-					/*TODO: ?? do i need this?? clean_connecion_data(cds);*/
+					clean_connecion_data(cds);
 					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
