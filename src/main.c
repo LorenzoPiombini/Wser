@@ -83,7 +83,7 @@ int main(int argc, char **argv)
 					pid_t ssl_handle_child = fork();
 					if(ssl_handle_child == -1){
 
-					}else{
+					}else if (ssl_handle_child == 0){
 						/*child*/
 						SSL_work_process(cds,cli_sock,&req,&ssl_cli,&ctx);
 						SSL_CTX_free(ctx);
@@ -92,6 +92,7 @@ int main(int argc, char **argv)
 					}
 
 					/*parent*/
+					continue;
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
 				}

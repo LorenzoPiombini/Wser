@@ -29,28 +29,23 @@ int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req
 			return 0;
 		}
 
-		while(open_fds > 0){
-			if(poll(pfds,open_fds,-1) == -1) return 0;
-			for(nfds_t j = 0; j < open_fds;j++){
-				if(pfds[j].revents == 0) break;
-				switch(r){
-				case SSL_READ_E:
-				case HANDSHAKE:
-				{		
-					r = handle_ssl_steps(cd,cli_sock,req,ssl,ctx,pfds,j);
-					break;
-				}
-				case 0:
-				{
-					/*process request*/
-					break;
-				}
-				case SSL_SET_E:
-				default:
-					return 0;
-				}
-			}
+		switch(r){
+		case SSL_READ_E:
+		case HANDSHAKE:
+		{		
+			r = handle_ssl_steps(cd,cli_sock,req,ssl,ctx,pfds,0);
+			break;
 		}
+		case 0:
+		{
+			/*process request*/
+			break;
+		}
+		case SSL_SET_E:
+		default:
+		return 0;
+		}
+
 		if(b_out){
 			break;
 		}
