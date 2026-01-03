@@ -75,6 +75,7 @@ int init_SSL(SSL_CTX **ctx){
 	SSL_CTX_sess_set_cache_size(*ctx, 1024);
 	SSL_CTX_set_timeout(*ctx,3600);
 	SSL_CTX_set_verify(*ctx,SSL_VERIFY_NONE, NULL);
+	SSL_CTX_set_cipher_list(ctx,"ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!eNULL:!MD5:!RC4:!3DES");
 	SSL_CTX_set_ciphersuites(*ctx,"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256");
 	return 0;
 }
