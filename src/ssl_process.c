@@ -2,131 +2,320 @@
 #include <stdio.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <sys/socket.h>
+#include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include "load.h"
 #include "ssl_process.h"
 #include "network.h"
 #include "request.h"
 #include "response.h"
+#include "monitor.h"
 
-/*USE POLL for this process*/
+static char prog[] = "ssl process";
 static int handle_ssl_steps(struct Connection_data *cd, 
 							int cli_sock,
 							struct Request *req,
 							SSL **ssl,
 							SSL_CTX **ctx);
 
-int SSL_work_process(struct Connection_data *cd,int cli_sock,struct Request *req,SSL **ssl,SSL_CTX **ctx)
+
+int SSL_work_process(int data_sock)
 {
+	if(init_SSL(&ctx) == -1){
+		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
+		kill(getppid(),SIGINT);
+		exit(1);
+		return -1;
+	}
 
-	int b_out = 0;
+	if(start_monitor(data_sock) == -1) {
+		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
+		kill(getppid(),SIGINT);
+		exit(1);
+	}
+
+
+	/*setting up to receiving file descriptor from another process*/
+	int            data, cli_sock;
+	struct iovec   iov;
+	struct msghdr  msgh;
+
+	/* Allocate a char buffer for the ancillary data. See the comments
+	   in sendfd() */
+	union {
+		char   buf[CMSG_SPACE(sizeof(int))];
+		struct cmsghdr align;
+	} controlMsg;
+	struct cmsghdr *cmsgp;
+
+	/* The 'msg_name' field can be used to obtain the address of the
+	   sending socket. However, we do not need this information. */
+
+	msgh.msg_name = NULL;
+	msgh.msg_namelen = 0;
+
+	/* Specify buffer for receiving real data */
+
+	msgh.msg_iov = &iov;
+	msgh.msg_iovlen = 1;
+	iov.iov_base = &data;       /* Real data is an 'int' */
+	iov.iov_len = sizeof(int);
+
+	/* Set 'msghdr' fields that describe ancillary data */
+
+	msgh.msg_control = controlMsg.buf;
+	msgh.msg_controllen = sizeof(controlMsg.buf);
+
+	SSL *ssl_cli = NULL;
 	for(;;){
-		int r = handle_ssl_steps(cd,cli_sock,req,ssl,ctx);
-			
-		if(r == -1) return 0;
+		if((nfds = monitor_events()) == -1) break;	
+		if(nfds == EINTR) continue;
+		for(int i = 0; i < nfds; i++){
+			if(events[i].data.fd == data_sock){
+				/* Receive real plus ancillary data; real data is ignored */
 
-		switch(r){
-		case SSL_READ_E:
-		case HANDSHAKE:
-		{		
-			r = handle_ssl_steps(cd,cli_sock,req,ssl,ctx);
-			if( r == 0){
-				
-			}else{
-				break;
-			}
-		}
-		case 0:
-		{
-			/*process request*/
-			switch(req->method){
-			case GET:
-			{
-				struct Response res = {0};
-				struct Content cont = {0};
-				/* Load content */	
-				if(load_resource(req->resource,&cont) == -1){
-					/*send not found response*/
-					if(generate_response(&res,404,NULL,req) == -1) break;
+				errno = 0;
+				if(recvmsg(data_sock, &msgh, 0) == -1){
+					if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
+					continue;
+				}
+
+				if (cmsgp == NULL
+						|| cmsgp->cmsg_len != CMSG_LEN(sizeof(int))
+						|| cmsgp->cmsg_level != SOL_SOCKET
+						|| cmsgp->cmsg_type != SCM_RIGHTS) continue;
+
+
+				memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
+
+				struct Request req = {0};
+				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+
+				if(r == -1) continue;
+				if(r == 0){
+					/*process request*/
+					switch(req.method){
+						case GET:
+							{
+								struct Response res = {0};
+								struct Content cont = {0};
+								/* Load content */	
+								if(load_resource(req.resource,&cont) == -1){
+									/*send not found response*/
+									if(generate_response(&res,404,NULL,&req) == -1) break;
+
+									int w = 0;
+									if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+									if( w == SSL_WRITE_E) {
+										clear_response(&res);
+										clear_request(&req);
+										clear_content(&cont);
+										continue;
+									}
+									clear_response(&res);
+									clear_request(&req);
+									clear_content(&cont);
+									continue;
+								}
+
+								/*send 200 response*/
+								if(generate_response(&res,OK,&cont,&req) == -1) {
+									clear_content(&cont);
+									clear_response(&res);
+									clear_request(&req);
+									continue;
+								}
+
+								clear_content(&cont);
+								int w = 0;
+								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+									clear_request(&req);
+									clear_response(&res);
+									break;
+								}
+								if(w == SSL_WRITE_E){
+									clear_request(&req);
+									clear_response(&res);
+									continue;
+								}
+								clear_request(&req);
+								clear_response(&res);
+								continue;
+				}
+				case BAD_REQ:
+				{
+					struct Response res = {0};
+					/*send a bed request response*/
+					if(generate_response(&res,400,NULL,&req) == -1) {
+						clear_response(&res);
+						clear_request(&req);
+						break;
+					}
 
 					int w = 0;
-					if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-					if( w == SSL_WRITE_E){
-						uint8_t ws = 0;
-						while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-							if( w == SSL_WRITE_E) continue;
-						}
-
+					if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
 						clear_response(&res);
-						clear_request(req);
-						clear_content(&cont);
-						return 0;
+						clear_request(&req);
+						break;
+					}
+					if(w == SSL_WRITE_E){
+						clear_response(&res);
+						clear_request(&req);
+						continue;
 					}
 					clear_response(&res);
-					clear_request(req);
-					clear_content(&cont);
-					return 0;
+					clear_request(&req);
+					continue;
 				}
-
-				/*send 200 response*/
-				if(generate_response(&res,OK,&cont,req) == -1) {
-					clear_content(&cont);
-					clear_response(&res);
-					clear_request(req);
-					return 0;
-				}
-
-				clear_content(&cont);
-				int w = 0;
-				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-				if(w == SSL_WRITE_E){
-					uint8_t ws = 0;
-					while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-						if(w == SSL_WRITE_E) continue;
-
-					}
-					clear_request(req);
-					clear_response(&res);
-					return 0;
-				}
-				clear_request(req);
-				clear_response(&res);
-				return 0;
+				case SSL_SET_E:
+				/*TODO*/
+				default:
+				continue;
 			}
-			default:
-			}
-			break;
-		}
-		case BAD_REQ:
-		{
-			struct Response res = {0};
-			/*send a bed request response*/
-			if(generate_response(&res,400,NULL,req) == -1) break;
-			int w = 0;
-			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-			if(w == SSL_WRITE_E){
-				while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-					if( w == SSL_WRITE_E) continue;
+
+
+				}
+			}else{
+				struct Request req = {0};
+				int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+
+				if(r == -1){
+					clear_request(&req);
+					continue;
+				}
+
+				switch(r){
+					case SSL_READ_E:
+					case HANDSHAKE:
+						{		
+							r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+							if( r == 0){
+								/*falls to case 0*/
+							}else{
+								break;
+							}
+						}
+					case 0:
+						{
+							/*process request*/
+							switch(req.method){
+								case GET:
+									{
+										struct Response res = {0};
+										struct Content cont = {0};
+										/* Load content */	
+										if(load_resource(req.resource,&cont) == -1){
+											/*send not found response*/
+											if(generate_response(&res,404,NULL,&req) == -1){
+												clear_response(&res);
+												clear_request(&req);
+												clear_content(&cont);
+												remove_socket_from_monitor(events[i].data.fd);
+												break;
+											}
+
+											int w = 0;
+											if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+												clear_response(&res);
+												clear_request(&req);
+												clear_content(&cont);
+												break;
+											}
+
+											if( w == SSL_WRITE_E){
+												clear_response(&res);
+												clear_request(&req);
+												clear_content(&cont);
+												continue;
+											}
+
+											clear_response(&res);
+											clear_request(&req);
+											clear_content(&cont);
+											remove_socket_from_monitor(events[i].data.fd);
+											continue;
+										}
+
+										/*send 200 response*/
+										if(generate_response(&res,OK,&cont,&req) == -1) {
+											clear_content(&cont);
+											clear_response(&res);
+											clear_request(&req);
+											remove_socket_from_monitor(events[i].data.fd);
+											continue;
+										}
+
+										clear_content(&cont);
+										int w = 0;
+										if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+											clear_request(&req);
+											clear_response(&res);
+											break;
+										}
+
+										if(w == SSL_WRITE_E){
+											clear_request(&req);
+											clear_response(&res);
+											continue;
+										}
+										clear_request(&req);
+										clear_response(&res);
+										remove_socket_from_monitor(events[i].data.fd);
+										continue;
+									}
+								default:
+							}
+							break;
+						}
+					case BAD_REQ:
+						{
+							struct Response res = {0};
+							/*send a bed request response*/
+							if(generate_response(&res,400,NULL,&req) == -1){
+								clear_response(&res);
+								clear_request(&req);
+								remove_socket_from_monitor(events[i].data.fd);
+								break;
+							}
+
+							int w = 0;
+							if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+								clear_response(&res);
+								clear_request(&req);
+								break;
+							}
+							if(w == SSL_WRITE_E){
+								clear_response(&res);
+								clear_request(&req);
+								continue;
+							}
+							clear_response(&res);
+							clear_request(&req);
+							remove_socket_from_monitor(events[i].data.fd);
+							continue;
+						}
+					case WRITE_OK:
+						remove_socket_from_monitor(events[i].data.fd);
+						break;
+					case SSL_SET_E:
+					default:
+						continue;
 				}
 			}
-			clear_response(&res);
-			return 0;
-		}
-		case SSL_SET_E:
-		default:
-		return 0;
-		}
-
-		if(b_out){
-			break;
 		}
 	}
+	SSL_CTX_free(ctx);
+	clean_connecion_data(cds,-1);
 	return 0;
 }
 
 static int handle_ssl_steps(struct Connection_data *cd, 
-							int cli_sock,
-							struct Request *req,
-							SSL **ssl,
-							SSL_CTX **ctx)
+		int cli_sock,
+		struct Request *req,
+		SSL **ssl,
+		SSL_CTX **ctx)
 {
 	int i;
 	for(i = 0; i < MAX_CON_DAT_ARR; i++){
@@ -158,6 +347,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
 						cd[i].retry_handshake = SSL_accept;
+						if(add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+							/*TODO*/
+						}
 						break;
 					}
 				}
@@ -185,6 +377,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
 						cd[i].retry_read = SSL_read_ex;
+						if(add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+							/*TODO*/
+						}
 						break;
 					}
 				}
@@ -326,6 +521,27 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				}
 			}
 			return 0;
+		}
+
+		if(cd[i].retry_write){
+			int result;
+			size_t bwritten = 0;
+			if((result = cd[i].retry_write(cd[i].ssl,
+							cd[i].buf != NULL ? cd[i].buf : cd[i].res.header_str,
+							cd[i].buf != NULL ? strlen(cd[i].buf) : strlen(cd[i].res.header_str),
+							&bwritten)) == 0){
+				int err = SSL_get_error(cd[i].ssl,result);
+				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					return SSL_WRITE_E;
+				}else{
+
+					ERR_print_errors_fp(stderr);
+					clean_connecion_data(cds,cd[i].fd);
+					return -1;
+				}
+			}
+			clean_connecion_data(cds,cd[i].fd);
+			return WRITE_OK;
 		}
 	}
 	return 0;

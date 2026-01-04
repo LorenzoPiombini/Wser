@@ -13,6 +13,7 @@
 #include <ifaddrs.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <fcntl.h>
 #include "network.h"       
 #include "response.h"       
 #include "monitor.h"       
@@ -123,7 +124,7 @@ sock_setup:
 	return sock_fd;
 }
 
-int listen_UNIX_socket() 
+int listen_UNIX_socket(int opt) 
 {
 	
 	struct sockaddr_un address_socket_family;
@@ -136,6 +137,11 @@ int listen_UNIX_socket()
 	address_socket_family.sun_family = AF_UNIX;
 	strncpy(address_socket_family.sun_path,INT_PROC_SOCK_SSL,strlen(INT_PROC_SOCK_SSL)+1);	
 
+	if(opt == SOCK_NONBLOCK){
+		if(fcntl(sock_un,F_SETFD,O_NONBLOCK) == -1){
+			return -1;
+		}
+	}
 	unlink(INT_PROC_SOCK_SSL);
 	int result = bind(sock_un,(const struct sockaddr *) &address_socket_family,sizeof(address_socket_family));
 	if(result == -1) return -1;
@@ -196,6 +202,8 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 					remove_socket_from_monitor(cli_sock);
 					return -1;
 				}
+				cd[i].retry_write = SSL_write_ex;
+				memcpy(&cd[i].res,res,sizeof(struct Response));
 				return SSL_WRITE_E;
 			}else{
 				SSL_free(cd[i].ssl);
@@ -212,8 +220,16 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		if((r = SSL_write_ex(cd[i].ssl,buff,strlen(buff),&bwritten)) == 0){
 			int err = SSL_get_error(cd[i].ssl,r);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) return -1;
-				free(buff);
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) {
+					SSL_free(cd[i].ssl);
+					remove_socket_from_monitor(cli_sock);
+					return -1;
+				}
+
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
+				cd[i].retry_write = SSL_write_ex;
+				cd[i].buf = buff;
 				return SSL_WRITE_E;
 			}
 
@@ -293,13 +309,36 @@ int write_cli_sock(int cli_sock, struct Response *res)
 	return 0;
 }
 
-void clean_connecion_data(struct Connection_data *cd)
+
+void clean_connecion_data(struct Connection_data *cd, int sock)
 {
+	if(sock != -1){
+				
+		int i;
+		for(i = 0; i < MAX_CON_DAT_ARR; i++){
+			if(cd[i].fd != sock) continue;
+
+			cd[i].fd = -1;
+			if(cd[i].ssl) SSL_free(cd[i].ssl);
+			cd[i].retry_read = NULL;
+			cd[i].retry_handshake = NULL;
+			cd[i].retry_write = NULL;
+			clear_response(&cd[i].res);
+			if(cd[i].buf) free(cd[i].buf);
+			return ;
+		}
+
+		return;
+	}
 	int i;
 	for(i = 0; i < MAX_CON_DAT_ARR; i++){
+		cd[i].fd = -1;
 		if(cd[i].ssl) SSL_free(cd[i].ssl);
 		cd[i].retry_read = NULL;
 		cd[i].retry_handshake = NULL;
+		cd[i].retry_write = NULL;
+		clear_response(&cd[i].res);
+		if(cd[i].buf) free(cd[i].buf);
 	}
 
 }
