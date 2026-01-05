@@ -178,7 +178,7 @@ int main(int argc, char **argv)
 					/*send ancillary data to data sock*/
 					errno = 0;
 					if(sendmsg(data_sock, &msgh[x],0) == -1){
-						if(result == EAGAIN || result == EWOULDBLOCK){
+						if(errno == EAGAIN || errno == EWOULDBLOCK){
 							add_sock_to_list(cli_sock);
 							continue;
 						}
