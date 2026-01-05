@@ -20,12 +20,13 @@
 char prog[] = "wser";
 
 #define USE_FORK 1
+#define MAX_LIST_LEN 256
 
-int cli_list_sock[10] = {0};
+int cli_list_sock[MAX_LIST_LEN] = {0};
 static int add_sock_to_list(int fd)
 {
 	int i;
-	for(i = 0; i < 10;i++){
+	for(i = 0; i < MAX_LIST_LEN;i++){
 		if(cli_list_sock[i] == -1){
 			cli_list_sock[i] = fd;
 			return 0;
@@ -33,10 +34,31 @@ static int add_sock_to_list(int fd)
 	}
 	return -1;
 }
+
+static int remove_sock_from_list(int fd)
+{
+	int i;
+	for(i = 0; i < MAX_LIST_LEN;i++){
+		if(cli_list_sock[i] == fd){
+			cli_list_sock[i] = -1;
+			return 0;
+		}	
+	}
+	return -1;
+}
+static int find_first_free()
+{
+	int i;
+	for(i = 0; i < MAX_LIST_LEN;i++){
+		if(cli_list_sock[i] == -1) return i;
+	}
+	return -1;
+}
+
 static int  find_sock(int fd)
 {
 	int i;
-	for(i = 0; i < 10;i++){
+	for(i = 0; i < MAX_LIST_LEN;i++){
 		if(cli_list_sock[i] == fd && fd != -1) return 1;
 	}
 
@@ -140,11 +162,19 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
-
+	int data_sock = -1;
+	if(secure){
+		data_sock = connect_UNIX_socket(-1);
+		if(add_socket_to_monitor(data_sock, EPOLLIN) == -1){
+			kill(ssl_handle_child,SIGINT);
+			stop_listening(con);
+			stop_monitor();	
+			return -1;
+		}
+	}
 	int cli_sock = -1;
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
-	int data_sock = -1;
 
 	for(;;){
 		if((nfds = monitor_events()) == -1) break;	
@@ -161,31 +191,21 @@ int main(int argc, char **argv)
 
 					if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
-					int x;
-					for(x = 0; x < 10; x++){ 	
-						int fd = 0;
-						memcpy(&fd,CMSG_DATA(cmsgp[x]),sizeof(int));
-						if(find_sock(fd) == -1) {
-							memcpy(CMSG_DATA(cmsgp[x]), &cli_sock, sizeof(int));
-							break;
-						}
+					int x = find_first_free();
+					if(x == -1){
+						fprintf(stdout,"err! client socket llist is full");
+						continue;
 					}
+					memcpy(CMSG_DATA(cmsgp[x]), &cli_sock, sizeof(int));
 
-					data_sock = connect_UNIX_socket(-1);
 					/*send ancillary data to data sock*/
-					errno = 0;
 					if(sendmsg(data_sock, &msgh[x],0) == -1){
-						if(errno == EAGAIN || errno == EWOULDBLOCK){
-							add_sock_to_list(cli_sock);
-							if(add_socket_to_monitor(data_sock, EPOLLIN|EPOLLOUT) == -1) return -1;
-							continue;
-						}
 						stop_listening(cli_sock);
 						int fd_holder = -1;
 						memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
 						continue;
 					}
-					stop_listening(cli_sock);
+					add_sock_to_list(cli_sock);
 					continue;
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
@@ -611,6 +631,35 @@ bad_request:
 				clear_request(&req);
 				continue;
 
+			}else if (events[i].data.fd == data_sock){
+
+				/*the ssl process send the fds that we can close */
+				char buffer[5] = {0};
+				if(read(data_sock,buffer,5) == -1){
+					fprintf(stderr,"could not read unix socket\n");
+					continue;
+				}
+
+				int x,c, fd = 0, sz = (int)strlen(buffer);
+				for(x = sz - 1 , c = 0; x <= 0; x--,c++ ){
+					switch(c){
+					case 0:
+						fd += (int)buffer[x] - '0';
+						break;
+					case 1:
+						fd += ((int)buffer[x] - '0') * 10;
+						break;
+					case 2:
+						fd += ((int)buffer[x] - '0') * 100;
+						break;
+					case 3:
+						fd += ((int)buffer[x] - '0') * 1000;
+						break;
+					}
+				}
+				
+				remove_sock_from_list(fd);
+				stop_listening(fd);
 			}else{ /*SECOND BRANCH*/
 
 				int r = 0;
