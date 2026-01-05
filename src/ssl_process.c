@@ -28,18 +28,14 @@ int SSL_work_process(int data_sock)
 		kill(getppid(),SIGINT);
 		return -1;
 	}
-
-	if(start_monitor(data_sock) == -1) {
+	int sock = -1;
+	errno = 0;
+	if((sock = accept(data_sock,NULL,NULL)) == -1)
+	if(start_monitor(sock) == -1) {
 		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
 		kill(getppid(),SIGINT);
 		return -1;
 	}
-
-	if(modify_monitor_event(data_sock,EPOLLOUT | EPOLLIN) == -1){
-		kill(getppid(),SIGINT);
-		return -1;
-	} 
-
 	/*setting up to receiving file descriptor from another process*/
 	int            data, cli_sock;
 	struct iovec   iov;
@@ -76,10 +72,7 @@ int SSL_work_process(int data_sock)
 		if((nfds = monitor_events()) == -1) break;	
 		if(nfds == EINTR) continue;
 		for(int i = 0; i < nfds; i++){
-			if(events[i].data.fd == data_sock){
-				int sock = -1;
-				errno = 0;
-				if((sock = accept(data_sock,NULL,NULL)) == -1)
+			if(events[i].data.fd == sock){
 				/* Receive real plus ancillary data; real data is ignored */
 
 				if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
