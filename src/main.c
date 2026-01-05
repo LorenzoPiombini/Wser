@@ -191,7 +191,8 @@ int main(int argc, char **argv)
 						memcpy(CMSG_DATA(cmsgp), &fd_holder, sizeof(int));
 						continue;
 					}
-					add_sock_to_list(cli_sock);
+					stop_listening(cli_sock);
+					stop_listening(data_sock);
 					continue;
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;

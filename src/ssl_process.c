@@ -14,6 +14,7 @@
 #include "monitor.h"
 
 static char prog[] = "ssl process";
+static void convert_fd_to_str(int fd, char *buf);
 static int process_request(struct Request *req, int cli_sock, int data_sock);
 static int handle_ssl_steps(struct Connection_data *cd, 
 							int cli_sock,
@@ -30,11 +31,6 @@ int SSL_work_process(int data_sock)
 		return -1;
 	}
 
-	if(start_monitor(data_sock) == -1) {
-		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
-		kill(getppid(),SIGINT);
-		return -1;
-	}
 	/*setting up to receiving file descriptor from another process*/
 	int            data, cli_sock;
 	struct iovec   iov;
@@ -68,75 +64,102 @@ int SSL_work_process(int data_sock)
 
 	SSL *ssl_cli = NULL;
 	for(;;){
-		if((nfds = monitor_events()) == -1) break;	
-		if(nfds == EINTR) continue;
-		for(int i = 0; i < nfds; i++){
-			if(events[i].data.fd == data_sock){
-				/* Receive ancillary data; real data is ignored */
-				int sock = -1;
-				errno = 0;
-				if((sock = accept(data_sock,NULL,NULL)) == -1){
-					if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
+		/* Receive ancillary data; real data is ignored */
+		int sock = -1;
+		if((sock = accept(data_sock,NULL,NULL)) == -1){
+				/*TODO:*/	
+		}
+		errno = 0;
+		if(recvmsg(sock, &msgh, 0) == -1){
+				/*TODO:*/	
+		}
 
-				}
-				errno = 0;
-				if(recvmsg(sock, &msgh, 0) == -1){
-					if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
-					continue;
-				}
-
-				cmsgp = CMSG_FIRSTHDR(&msgh);
-				if (cmsgp == NULL
-						|| cmsgp->cmsg_len != CMSG_LEN(sizeof(int))
-						|| cmsgp->cmsg_level != SOL_SOCKET
-						|| cmsgp->cmsg_type != SCM_RIGHTS) continue;
+		cmsgp = CMSG_FIRSTHDR(&msgh);
+		if (cmsgp == NULL
+				|| cmsgp->cmsg_len != CMSG_LEN(sizeof(int))
+				|| cmsgp->cmsg_level != SOL_SOCKET
+				|| cmsgp->cmsg_type != SCM_RIGHTS) continue;
 
 
-				memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
+		memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
 
-				struct Request req = {0};
-				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+		pid_t child = fork();
+		if(child == 0){
+			if(start_monitor(cli_sock) == -1) {
+				fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
+				kill(getppid(),SIGINT);
+				return -1;
+			}
 
-				if(r == -1) continue;
-				if(r == 0){
-					if(process_request(&req,cli_sock,sock) == -1){
-						clear_request(&req);
-						continue;
-					}
-				}
-			}else{
-				struct Request req = {0};
-				int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+			struct Request req = {0};
+			int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 
-				if(r == -1){
+			if(r == -1) goto teardown;
+			
+			if(r == 0){
+				if(process_request(&req,cli_sock,sock) == -1){
 					clear_request(&req);
-					continue;
-				}
-
-				switch(r){
-				case SSL_READ_E:
-				case HANDSHAKE:
-				{		
-					r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
-					if( r == 0){
-						process_request(&req,events[i].data.fd,-1);
-						clear_request(&req);
-						break;
-					}else{
-						break;
-					}
-				}
-				case 0:
-				{
-					/*process request*/
-					process_request(&req,events[i].data.fd,-1);
-					break;
-				}
-				default:
-					continue;
+					goto teardown;
 				}
 			}
+
+			int nfds =-1,i;
+			for(;;){
+				if((nfds = monitor_events()) == -1) goto teardown;
+				if(nfds == SIGINT) continue;
+				for(i = 0; i < nfds; i++){
+					int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+
+					if(r == -1)goto teardown;
+
+					switch(r){
+					case SSL_READ_E:
+					case SSL_WRITE_E:
+					case HANDSHAKE:
+					{		
+						r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+						if(r == 0){
+							process_request(&req,events[i].data.fd,-1);
+							clear_request(&req);
+							goto teardown;
+						}
+						break;
+					}
+					case 0:
+					{
+						/*process request*/
+						process_request(&req,events[i].data.fd,-1);
+						goto teardown;
+					}
+					default:
+					stop_listening(data_sock);
+					stop_monitor();
+					clear_request(&req);
+					clean_connecion_data(cds,-1);
+					SSL_CTX_free(ctx);
+					exit(1);
+					}
+				}
+			}
+teardown:
+			stop_listening(data_sock);
+			stop_listening(sock);
+			SSL_CTX_free(ctx);
+			clean_connecion_data(cds,-1);
+			stop_monitor();
+			exit(0);
+		}else if(child == -1){
+			/*PARENT*/
+			stop_listening(cli_sock);
+			stop_listening(sock);
+			continue;
+		}else{
+			/*PARENT*/
+			stop_listening(cli_sock);
+			stop_listening(sock);
+			continue;
 		}
+
 	}
 	SSL_CTX_free(ctx);
 	clean_connecion_data(cds,-1);
@@ -209,7 +232,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
 						cd[i].retry_read = SSL_read_ex;
-						if(add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 							/*TODO*/
 						}
 						break;
@@ -384,73 +407,85 @@ static int process_request(struct Request *req, int cli_sock, int data_sock)
 {
 	/* process request*/
 	switch(req->method){
-	case GET:
-	{
-		struct Response res = {0};
-		struct Content cont = {0};
-		/* Load content */	
-		if(load_resource(req->resource,&cont) == -1){
-			/*send not found response*/
-			if(generate_response(&res,404,NULL,req) == -1) break;
+		case GET:
+			{
+				struct Response res = {0};
+				struct Content cont = {0};
+				/* Load content */	
+				if(load_resource(req->resource,&cont) == -1){
+					/*send not found response*/
+					if(generate_response(&res,404,NULL,req) == -1) break;
 
-			int w = 0;
-			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-			if(w == SSL_WRITE_E){
-				clear_response(&res);
+					int w = 0;
+					if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+					if(w == SSL_WRITE_E){
+						clear_response(&res);
+						clear_content(&cont);
+						return 0;
+					}
+					clear_response(&res);
+					clear_content(&cont);
+					return 0;
+				}
+
+				/*send 200 response*/
+				if(generate_response(&res,OK,&cont,req) == -1) {
+					clear_content(&cont);
+					clear_response(&res);
+					return 0;
+				}
+
 				clear_content(&cont);
+				int w = 0;
+				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+					clear_response(&res);
+					return 0;
+				}
+
+				if(w == SSL_WRITE_E){
+					clear_response(&res);
+					return 0;
+				}
+				clear_response(&res);
 				return 0;
 			}
-			clear_response(&res);
-			clear_content(&cont);
-			return 0;
-		}
+		case BAD_REQ:
+			{
+				struct Response res = {0};
+				/*send a bed request response*/
+				if(generate_response(&res,400,NULL,req) == -1) {
+					clear_response(&res);
+					return -1;
+				}
 
-		/*send 200 response*/
-		if(generate_response(&res,OK,&cont,req) == -1) {
-			clear_content(&cont);
-			clear_response(&res);
-			return 0;
-		}
+				int w = 0;
+				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+					clear_response(&res);
+					return -1;
+				}
 
-		clear_content(&cont);
-		int w = 0;
-		if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-			clear_response(&res);
+				if(w == SSL_WRITE_E){
+					clear_response(&res);
+					return 0;
+				}
+				/*CLEAR CDS and WRITE socket to parent*/
+				clear_response(&res);
+				return 0;
+			}
+		default:
 			return 0;
-		}
-
-		if(w == SSL_WRITE_E){
-			clear_response(&res);
-			return 0;
-		}
-		clear_response(&res);
-		return 0;
-	}
-	case BAD_REQ:
-	{
-		struct Response res = {0};
-		/*send a bed request response*/
-		if(generate_response(&res,400,NULL,req) == -1) {
-			clear_response(&res);
-			return -1;
-		}
-
-		int w = 0;
-		if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
-			clear_response(&res);
-			return -1;
-		}
-
-		if(w == SSL_WRITE_E){
-			clear_response(&res);
-			return 0;
-		}
-		/*CLEAR CDS and WRITE socket to parent*/
-		clear_response(&res);
-		return 0;
-	}
-	default:
-		return 0;
 	}
 	return -1;
 }
+
+static void convert_fd_to_str(int fd, char *buf)
+{
+	int d = 3;
+	if(fd < 10 ) buf[d] = fd + '0';
+	while((fd / 10) > 0){
+		int i = fd % 10;
+		if(d >= 0) buf[d] = i + '0';
+		fd /= 10;
+	}
+}
+
