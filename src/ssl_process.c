@@ -74,7 +74,12 @@ int SSL_work_process(int data_sock)
 		if(nfds == EINTR) continue;
 		for(int i = 0; i < nfds; i++){
 			if(events[i].data.fd == data_sock){
+				int sock = -1;
+				errno = 0;
+				if((sock = accept(data_sock,NULL,NULL)) == -1)
 				/* Receive real plus ancillary data; real data is ignored */
+
+				if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
 				errno = 0;
 				if(recvmsg(data_sock, &msgh, 0) == -1){
