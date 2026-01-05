@@ -192,7 +192,6 @@ int main(int argc, char **argv)
 						memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
 						continue;
 					}
-
 					stop_listening(cli_sock);
 					continue;
 				}else{

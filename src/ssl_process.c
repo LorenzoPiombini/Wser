@@ -26,16 +26,19 @@ int SSL_work_process(int data_sock)
 	if(init_SSL(&ctx) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		kill(getppid(),SIGINT);
-		exit(1);
 		return -1;
 	}
 
 	if(start_monitor(data_sock) == -1) {
 		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
 		kill(getppid(),SIGINT);
-		exit(1);
+		return -1;
 	}
 
+	if(modify_monitor_event(data_sock,EPOLLOUT | EPOLLIN) == -1){
+		kill(getppid(),SIGINT);
+		return -1;
+	} 
 
 	/*setting up to receiving file descriptor from another process*/
 	int            data, cli_sock;
