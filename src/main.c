@@ -630,25 +630,26 @@ bad_request:
 					}
 
 					/*send ancillary data to data sock*/
-					int result = -1;
-					if((result = sendmsg(data_sock, &msgh[x],0)) == -1){
-						stop_listening(cli_sock);
+					errno = 0;
+					if(sendmsg(data_sock, &msgh[x],0) == -1){
+						if(errno == EWOULDBLOCK || errno == EAGAIN){
+							b = 1;
+							break;
+						}
 						int fd_holder = -1;
 						memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
-						break;
-					}
-
-					if(result == EWOULDBLOCK || result == EAGAIN){
-						b = 1;
 						break;
 					}
 				}
 
 				if(b) continue;
 
-				stop_listening(cli_sock);
-				int fd_holder = -1;
-				memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
+				if(x >= 10){
+					/*socket not found*/
+					int fd_holder = -1;
+					memcpy(CMSG_DATA(cmsgp[0]), &fd_holder, sizeof(int));
+					continue;
+				}
 				continue;
 				
 			}else{ /*SECOND BRANCH*/
