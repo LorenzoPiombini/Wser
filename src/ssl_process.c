@@ -82,7 +82,7 @@ int SSL_work_process(int data_sock)
 				if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
 				errno = 0;
-				if(recvmsg(data_sock, &msgh, 0) == -1){
+				if(recvmsg(sock, &msgh, 0) == -1){
 					if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
 					continue;
 				}
