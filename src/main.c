@@ -97,7 +97,6 @@ int main(int argc, char **argv)
 
 		/*start SSL handle processs*/
 		if(ssl_handle_child == 0){
-			stop_listening(con);
 			int data_sock = -1;
 			if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK)) == -1){
 				kill(ssl_handle_child,SIGINT);

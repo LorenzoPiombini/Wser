@@ -174,9 +174,7 @@ int listen_UNIX_socket(int opt)
 	/*listen socket*/
 	if(listen(sock_un,20) == -1) return -1;
 	
-
 	return sock_un;
-
 }
 
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd)
