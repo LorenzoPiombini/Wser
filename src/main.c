@@ -55,15 +55,6 @@ static int find_first_free()
 	return -1;
 }
 
-static int  find_sock(int fd)
-{
-	int i;
-	for(i = 0; i < MAX_LIST_LEN;i++){
-		if(cli_list_sock[i] == fd && fd != -1) return 1;
-	}
-
-	return -1;
-}
 int main(int argc, char **argv)
 {	
 	int secure = 0;
@@ -98,9 +89,9 @@ int main(int argc, char **argv)
 	 * */
 
 	int data; 
-	struct iovec iov[10];
-	struct msghdr msgh[10] = {0};
-	struct cmsghdr *cmsgp[10];
+	struct iovec iov;
+	struct msghdr msgh = {0};
+	struct cmsghdr *cmsgp;
 
 	/* Ancillary data buffer, wrapped in a union
 	   in order to ensure it is suitably aligned */
@@ -133,27 +124,24 @@ int main(int argc, char **argv)
 		/*parent*/
 		/*set up to send client socket fd to the SSL process*/
 
-		int i; 
-		for(i = 0; i < 10; i++){
-			msgh[i].msg_name = NULL;
-			msgh[i].msg_namelen = 0;
+		msgh.msg_name = NULL;
+		msgh.msg_namelen = 0;
 
-			msgh[i].msg_iov = &iov[i];
-			msgh[i].msg_iovlen = 1;
-			iov[i].iov_base = &data;
-			iov[i].iov_len = sizeof(int);
-			data = 1234;
+		msgh.msg_iov = &iov;
+		msgh.msg_iovlen = 1;
+		iov.iov_base = &data;
+		iov.iov_len = sizeof(int);
+		data = 1234;
 
-			/* Set 'msghdr' fields that describe ancillary data */
-			msgh[i].msg_control = u.buf;
-			msgh[i].msg_controllen = sizeof(u.buf);
+		/* Set 'msghdr' fields that describe ancillary data */
+		msgh.msg_control = u.buf;
+		msgh.msg_controllen = sizeof(u.buf);
 
-			/* Set up ancillary data describing file descriptor to send */
-			cmsgp[i] = CMSG_FIRSTHDR(&msgh[i]);
-			cmsgp[i]->cmsg_level = SOL_SOCKET;
-			cmsgp[i]->cmsg_type = SCM_RIGHTS;
-			cmsgp[i]->cmsg_len = CMSG_LEN(sizeof(int));
-		}
+		/* Set up ancillary data describing file descriptor to send */
+		cmsgp = CMSG_FIRSTHDR(&msgh);
+		cmsgp->cmsg_level = SOL_SOCKET;
+		cmsgp->cmsg_type = SCM_RIGHTS;
+		cmsgp->cmsg_len = CMSG_LEN(sizeof(int));
 	}
 
 	if(start_monitor(con) == -1) {
@@ -163,15 +151,6 @@ int main(int argc, char **argv)
 	}
 	
 	int data_sock = -1;
-	if(secure){
-		data_sock = connect_UNIX_socket(-1);
-		if(add_socket_to_monitor(data_sock, EPOLLIN) == -1){
-			kill(ssl_handle_child,SIGINT);
-			stop_listening(con);
-			stop_monitor();	
-			return -1;
-		}
-	}
 	int cli_sock = -1;
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
@@ -196,13 +175,20 @@ int main(int argc, char **argv)
 						fprintf(stdout,"err! client socket llist is full");
 						continue;
 					}
-					memcpy(CMSG_DATA(cmsgp[x]), &cli_sock, sizeof(int));
+					memcpy(CMSG_DATA(cmsgp), &cli_sock, sizeof(int));
+					data_sock = connect_UNIX_socket(-1);
+					if(add_socket_to_monitor(data_sock, EPOLLIN) == -1){
+						kill(ssl_handle_child,SIGINT);
+						stop_listening(con);
+						stop_monitor();	
+						return -1;
+					}
 
 					/*send ancillary data to data sock*/
-					if(sendmsg(data_sock, &msgh[x],0) == -1){
+					if(sendmsg(data_sock, &msgh,0) == -1){
 						stop_listening(cli_sock);
 						int fd_holder = -1;
-						memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
+						memcpy(CMSG_DATA(cmsgp), &fd_holder, sizeof(int));
 						continue;
 					}
 					add_sock_to_list(cli_sock);
@@ -631,37 +617,40 @@ bad_request:
 				clear_request(&req);
 				continue;
 
-			}else if (events[i].data.fd == data_sock){
 
-				/*the ssl process send the fds that we can close */
-				char buffer[5] = {0};
-				if(read(data_sock,buffer,5) == -1){
-					fprintf(stderr,"could not read unix socket\n");
-					continue;
-				}
-
-				int x,c, fd = 0, sz = (int)strlen(buffer);
-				for(x = sz - 1 , c = 0; x <= 0; x--,c++ ){
-					switch(c){
-					case 0:
-						fd += (int)buffer[x] - '0';
-						break;
-					case 1:
-						fd += ((int)buffer[x] - '0') * 10;
-						break;
-					case 2:
-						fd += ((int)buffer[x] - '0') * 100;
-						break;
-					case 3:
-						fd += ((int)buffer[x] - '0') * 1000;
-						break;
-					}
-				}
-				
-				remove_sock_from_list(fd);
-				stop_listening(fd);
 			}else{ /*SECOND BRANCH*/
 
+				if(secure){
+					/*the ssl process send the fds that we can close */
+					char buffer[5] = {0};
+					if(read(events[i].data.fd,buffer,5) == -1){
+						fprintf(stderr,"could not read unix socket\n");
+						continue;
+					}
+
+					int x,c, fd = 0, sz = (int)strlen(buffer);
+					for(x = sz - 1 , c = 0; x <= 0; x--,c++ ){
+						switch(c){
+							case 0:
+								fd += (int)buffer[x] - '0';
+								break;
+							case 1:
+								fd += ((int)buffer[x] - '0') * 10;
+								break;
+							case 2:
+								fd += ((int)buffer[x] - '0') * 100;
+								break;
+							case 3:
+								fd += ((int)buffer[x] - '0') * 1000;
+								break;
+						}
+					}
+
+					remove_sock_from_list(fd);
+					remove_socket_from_monitor(events[i].data.fd);
+					stop_listening(fd);
+					continue;
+				}
 				int r = 0;
 				printf("sock nr %d\n",events[i].data.fd);
 				if(events[i].events == EPOLLIN) {
@@ -700,18 +689,71 @@ bad_request:
 						struct Content cont;
 						memset(&cont,0,sizeof(struct Content));
 						switch(req.method){
-						case GET:
-							/* Load content */	
-							if(load_resource(req.resource,&cont) == -1){
-								printf("sending 404.\n");
-								/*send not found response*/
+							case GET:
+								/* Load content */	
+								if(load_resource(req.resource,&cont) == -1){
+									printf("sending 404.\n");
+									/*send not found response*/
 
-								if(generate_response(&res,404,NULL,&req) == -1) break;
+									if(generate_response(&res,404,NULL,&req) == -1) break;
 
+
+									clear_content(&cont);
+									clear_request(&req);
+									printf("header is \n%s\n",res.header_str);
+									int w = 0;
+									if(secure){
+										if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+									}else{
+										if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									}
+									if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+#if USE_FORK
+										uint8_t ws = 0;
+										if(secure){
+											while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+												if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+
+												ws = 1;
+												break;
+											}
+
+										}else{
+											while((w = write_cli_sock(cli_sock,&res) != -1)){
+												if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+												ws = 1;
+												break;
+											}
+
+										}
+										clear_request(&req);
+										if(ws){
+											if(secure) SSL_CTX_free(ctx);
+											exit(0);
+										}
+										if(secure) SSL_CTX_free(ctx);
+										exit(1);
+#else
+										clear_request(&req);
+										continue;	
+#endif
+									}
+								}
+								/* send response */
+								if(generate_response(&res,OK,&cont,&req) == -1){
+									/*server error 500*/
+#if USE_FORK 
+									if(secure) SSL_CTX_free(ctx);
+									exit(0);
+#else 
+									continue;
+#endif
+								}
 
 								clear_content(&cont);
-								clear_request(&req);
-								printf("header is \n%s\n",res.header_str);
+								printf("2nd branch: response header is\n%s\n",res.header_str);
+								printf("writing to client.\n");
 								int w = 0;
 								if(secure){
 									if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
@@ -738,100 +780,47 @@ bad_request:
 										}
 
 									}
-									clear_request(&req);
+
 									if(ws){
+										stop_listening(events[i].data.fd);
+										clear_response(&res);		
 										if(secure) SSL_CTX_free(ctx);
 										exit(0);
 									}
-									if(secure) SSL_CTX_free(ctx);
-									exit(1);
-#else
-									clear_request(&req);
-									continue;	
-#endif
-								}
-							}
-							/* send response */
-							if(generate_response(&res,OK,&cont,&req) == -1){
-								/*server error 500*/
-#if USE_FORK 
-								if(secure) SSL_CTX_free(ctx);
-								exit(0);
-#else 
-								continue;
-#endif
-							}
 
-							clear_content(&cont);
-							printf("2nd branch: response header is\n%s\n",res.header_str);
-							printf("writing to client.\n");
-							int w = 0;
-							if(secure){
-								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-							}else{
-								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-							}
-							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
-#if USE_FORK
-								uint8_t ws = 0;
-								if(secure){
-									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
-
-										ws = 1;
-										break;
-									}
-
-								}else{
-									while((w = write_cli_sock(cli_sock,&res) != -1)){
-										if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-										ws = 1;
-										break;
-									}
-
-								}
-
-								if(ws){
 									stop_listening(events[i].data.fd);
 									clear_response(&res);		
 									if(secure) SSL_CTX_free(ctx);
-									exit(0);
+									exit(1);
+#else 
+									continue;
+#endif
 								}
 
-								stop_listening(events[i].data.fd);
+								if(req.d_req)
+									fprintf(stdout,"%s\n",req.d_req);
+								else
+									fprintf(stdout,"%s\n",req.req);
+
+
+								clear_request(&req);
 								clear_response(&res);		
+
+#if USE_FORK
+								stop_listening(events[i].data.fd);
 								if(secure) SSL_CTX_free(ctx);
-								exit(1);
-#else 
+								exit(0);
+#else
+								remove_socket_from_monitor(events[i].data.fd);
 								continue;
 #endif
-							}
-
-							if(req.d_req)
-								fprintf(stdout,"%s\n",req.d_req);
-							else
-								fprintf(stdout,"%s\n",req.req);
-
-
-							clear_request(&req);
-							clear_response(&res);		
-
+							default:
+								/*send a bad request response*/
 #if USE_FORK
-							stop_listening(events[i].data.fd);
-							if(secure) SSL_CTX_free(ctx);
-							exit(0);
+								if(secure) SSL_CTX_free(ctx);
+								exit(0);
 #else
-							remove_socket_from_monitor(events[i].data.fd);
-							continue;
-#endif
-						default:
-							/*send a bad request response*/
-#if USE_FORK
-							if(secure) SSL_CTX_free(ctx);
-							exit(0);
-#else
-							continue;
+								continue;
 #endif
 						}
 					}
