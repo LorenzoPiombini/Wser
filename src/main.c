@@ -68,7 +68,6 @@ int main(int argc, char **argv)
 	fprintf(stdout,"(%s): listening on port %d...\n",prog,port);
 
 	
-	int data_sock = -1;/*UNIX socket to talk to SSL process*/
 
 	memset(cli_list_sock,-1,sizeof(int)*10);
 
@@ -90,11 +89,6 @@ int main(int argc, char **argv)
 
 	pid_t ssl_handle_child = -1;
 	if(secure){
-		if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK)) == -1){
-			stop_listening(con);
-			return -1;
-		}
-
 		pid_t ssl_handle_child = fork();
 		if(ssl_handle_child == -1){
 			stop_listening(con);
@@ -103,6 +97,14 @@ int main(int argc, char **argv)
 
 		/*start SSL handle processs*/
 		if(ssl_handle_child == 0){
+			stop_listening(con);
+			int data_sock = -1;
+			if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK)) == -1){
+				kill(ssl_handle_child,SIGINT);
+				exit(1);
+				return -1;
+			}
+
 			SSL_work_process(data_sock);
 			stop_listening(con);
 			exit(1);
@@ -112,20 +114,20 @@ int main(int argc, char **argv)
 
 		int i; 
 		for(i = 0; i < 10; i++){
-		msgh[i].msg_name = NULL;
-		msgh[i].msg_namelen = 0;
+			msgh[i].msg_name = NULL;
+			msgh[i].msg_namelen = 0;
 
-		msgh[i].msg_iov = &iov[i];
-		msgh[i].msg_iovlen = 1;
-		iov[i].iov_base = &data;
-		iov[i].iov_len = sizeof(int);
-		data = 1234;
+			msgh[i].msg_iov = &iov[i];
+			msgh[i].msg_iovlen = 1;
+			iov[i].iov_base = &data;
+			iov[i].iov_len = sizeof(int);
+			data = 1234;
 
-		/* Set 'msghdr' fields that describe ancillary data */
-		msgh[i].msg_control = u.buf;
-		msgh[i].msg_controllen = sizeof(u.buf);
+			/* Set 'msghdr' fields that describe ancillary data */
+			msgh[i].msg_control = u.buf;
+			msgh[i].msg_controllen = sizeof(u.buf);
 
-		/* Set up ancillary data describing file descriptor to send */
+			/* Set up ancillary data describing file descriptor to send */
 			cmsgp[i] = CMSG_FIRSTHDR(&msgh[i]);
 			cmsgp[i]->cmsg_level = SOL_SOCKET;
 			cmsgp[i]->cmsg_type = SCM_RIGHTS;
@@ -139,6 +141,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
+	int data_sock = connect_UNIX_socket(SOCK_NONBLOCK);
 	if(data_sock != -1){
 		if(add_socket_to_monitor(data_sock,EPOLLOUT) == -1){
 			kill(ssl_handle_child,SIGINT);
@@ -164,6 +167,8 @@ int main(int argc, char **argv)
 				int r = 0;
 				if(secure){
 					if((r = wait_for_connections_SSL(con,&cli_sock)) == -1) break;
+
+					if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
 					int x;
 					for(x = 0; x < 10; x++){ 	

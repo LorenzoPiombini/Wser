@@ -44,6 +44,7 @@ int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
 int listen_UNIX_socket(int opt);
+int connect_UNIX_socket(int opt);
 void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);

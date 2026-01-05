@@ -124,6 +124,31 @@ sock_setup:
 	return sock_fd;
 }
 
+int connect_UNIX_socket(int opt)
+{
+       struct sockaddr_un address_socket_family;
+       memset(&address_socket_family,0,sizeof(struct sockaddr_un));
+   
+       int sock_un = socket(AF_UNIX,SOCK_SEQPACKET,0);
+       if(sock_un == -1) return -1;
+       
+       /*bind to a file_path*/
+       address_socket_family.sun_family = AF_UNIX;
+	   strncpy(address_socket_family.sun_path,INT_PROC_SOCK_SSL,strlen(INT_PROC_SOCK_SSL)+1);  
+
+	   if(opt == SOCK_NONBLOCK){
+		   if(fcntl(sock_un,F_SETFD,O_NONBLOCK) == -1){
+			   return -1;
+		   }
+	   }
+
+	   int result = connect(sock_un,(const struct sockaddr*) &address_socket_family,sizeof(address_socket_family));
+	   if(result == -1) return -1;
+
+	   return sock_un;
+
+}
+
 int listen_UNIX_socket(int opt) 
 {
 	
