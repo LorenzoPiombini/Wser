@@ -12,6 +12,8 @@ static char *map_rpath(char *rpath);
 int load_resource(char *rpath, struct Content *cont)
 {
 	char *file_path = map_rpath(rpath);
+	if(!file_path) return -1;
+
 	FILE *fp = fopen(file_path,"rb");
 	if(!fp){
 		fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
@@ -63,6 +65,8 @@ int load_resource(char *rpath, struct Content *cont)
 
 static char *map_rpath(char *rpath)
 {
+	if(*rpath == '\0') return NULL;
+
 	char dir[DEF_DIR_L+1] = {0};
 	if(getuid() != 0)
 		strncpy(dir,"www",DEF_DIR_L+1);

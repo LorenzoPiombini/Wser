@@ -140,19 +140,11 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
-	int data_sock = connect_UNIX_socket(SOCK_NONBLOCK);
-	if(data_sock != -1){
-		if(add_socket_to_monitor(data_sock,EPOLLOUT) == -1){
-			kill(ssl_handle_child,SIGINT);
-			stop_monitor();
-			stop_listening(con);
-			return -1;
-		}
-	}
 
 	int cli_sock = -1;
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
+	int data_sock = -1;
 
 	for(;;){
 		if((nfds = monitor_events()) == -1) break;	
@@ -179,11 +171,13 @@ int main(int argc, char **argv)
 						}
 					}
 
+					data_sock = connect_UNIX_socket(-1);
 					/*send ancillary data to data sock*/
 					errno = 0;
 					if(sendmsg(data_sock, &msgh[x],0) == -1){
 						if(errno == EAGAIN || errno == EWOULDBLOCK){
 							add_sock_to_list(cli_sock);
+							if(add_socket_to_monitor(data_sock, EPOLLIN|EPOLLOUT) == -1) return -1;
 							continue;
 						}
 						stop_listening(cli_sock);
@@ -617,39 +611,6 @@ bad_request:
 				clear_request(&req);
 				continue;
 
-			}else if(events[i].data.fd == data_sock){
-
-				int x,b = 0;
-				for(x = 0; x < 10; x++){ 	
-					int fd = 0;
-					memcpy(&fd,CMSG_DATA(cmsgp[x]),sizeof(int));
-					if(find_sock(fd) == -1) {
-						continue;
-					}
-
-					/*send ancillary data to data sock*/
-					errno = 0;
-					if(sendmsg(data_sock, &msgh[x],0) == -1){
-						if(errno == EWOULDBLOCK || errno == EAGAIN){
-							b = 1;
-							break;
-						}
-						int fd_holder = -1;
-						memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
-						break;
-					}
-				}
-
-				if(b) continue;
-
-				if(x >= 10){
-					/*socket not found*/
-					int fd_holder = -1;
-					memcpy(CMSG_DATA(cmsgp[0]), &fd_holder, sizeof(int));
-					continue;
-				}
-				continue;
-				
 			}else{ /*SECOND BRANCH*/
 
 				int r = 0;

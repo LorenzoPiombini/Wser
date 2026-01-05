@@ -28,10 +28,8 @@ int SSL_work_process(int data_sock)
 		kill(getppid(),SIGINT);
 		return -1;
 	}
-	int sock = -1;
-	errno = 0;
-	if((sock = accept(data_sock,NULL,NULL)) == -1)
-	if(start_monitor(sock) == -1) {
+
+	if(start_monitor(data_sock) == -1) {
 		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
 		kill(getppid(),SIGINT);
 		return -1;
@@ -72,17 +70,21 @@ int SSL_work_process(int data_sock)
 		if((nfds = monitor_events()) == -1) break;	
 		if(nfds == EINTR) continue;
 		for(int i = 0; i < nfds; i++){
-			if(events[i].data.fd == sock){
+			if(events[i].data.fd == data_sock){
 				/* Receive real plus ancillary data; real data is ignored */
+				int sock = -1;
+				errno = 0;
+				if((sock = accept(data_sock,NULL,NULL)) == -1){
+					if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
-				if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
-
+				}
 				errno = 0;
 				if(recvmsg(sock, &msgh, 0) == -1){
 					if(errno == EAGAIN || errno == EWOULDBLOCK) continue;
 					continue;
 				}
 
+				cmsgp = CMSG_FIRSTHDR(&msgh);
 				if (cmsgp == NULL
 						|| cmsgp->cmsg_len != CMSG_LEN(sizeof(int))
 						|| cmsgp->cmsg_level != SOL_SOCKET
