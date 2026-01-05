@@ -176,18 +176,18 @@ int main(int argc, char **argv)
 					}
 
 					/*send ancillary data to data sock*/
-					int result = -1;
-					if((result = sendmsg(data_sock, &msgh[x],0)) == -1){
+					errno = 0;
+					if(sendmsg(data_sock, &msgh[x],0) == -1){
+						if(result == EAGAIN || result == EWOULDBLOCK){
+							add_sock_to_list(cli_sock);
+							continue;
+						}
 						stop_listening(cli_sock);
 						int fd_holder = -1;
 						memcpy(CMSG_DATA(cmsgp[x]), &fd_holder, sizeof(int));
 						continue;
 					}
 
-					if(result == EAGAIN || result == EWOULDBLOCK){
-						add_sock_to_list(cli_sock);
-						continue;
-					}
 					stop_listening(cli_sock);
 					continue;
 				}else{
