@@ -77,7 +77,13 @@ static int parse_header(char *head, struct Request *req)
 {
 	char *crlf = NULL;
 	int start = 0;
+	/* 
+	 * bool value for transfer encoding found
+	 * and content length found
+	 * */
+	int te_f = 0, cl_f = 0;
 	while((crlf = strstr(&head[start],"\r"))){
+		if(te_f && cl_f) return BAD_REQ; /*protecting from HTTP request smuggling*/
 		if (start > 0){
 			int end = crlf - head;
 			size_t s = end - start;
@@ -94,11 +100,22 @@ static int parse_header(char *head, struct Request *req)
 				continue;
 			}
 			
+			if((b = strstr(t,"Content-Length:"))){
+				if(cl_f) return BAD_REQ;
+				b += strlen("Content-Length: ");
+				strncpy(req->cont_length,b,strlen(b));
+				*crlf = ' ';
+				start = end + 2;
+				cl_f = 1;
+				continue;
+			}
 			if((b = strstr(t,"Transfer-Encoding:"))){
+				if(te_f) return BAD_REQ;
 				b += strlen("Transfer-Encoding: ");
 				strncpy(req->transfer_encoding,b,strlen(b));
 				*crlf = ' ';
 				start = end + 2;
+				te_f = 1;
 				continue;
 			}
 
