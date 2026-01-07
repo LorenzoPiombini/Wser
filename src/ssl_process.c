@@ -101,10 +101,12 @@ int SSL_work_process(int data_sock)
 			}
 			
 			if(r == 0){
-				if(process_request(&req,cli_sock) == -1){
+				if(process_request(&req,cli_sock) == 1){
 					clear_request(&req);
-					goto teardown;
+					continue;
 				}
+				clear_request(&req);
+				goto teardown;
 			}
 
 			int nfds =-1,i;
@@ -123,7 +125,10 @@ int SSL_work_process(int data_sock)
 					{		
 						r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 						if(r == 0){
-							process_request(&req,events[i].data.fd);
+							if(process_request(&req,events[i].data.fd) == 1){
+								clear_request(&req);
+								continue;
+							}
 							clear_request(&req);
 							goto teardown;
 						}
@@ -132,7 +137,10 @@ int SSL_work_process(int data_sock)
 					case 0:
 					{
 						/*process request*/
-						process_request(&req,events[i].data.fd);
+						if(process_request(&req,events[i].data.fd) == 1){
+							clear_request(&req);
+							continue;
+						}
 						goto teardown;
 					}
 					default:
@@ -448,7 +456,7 @@ static int process_request(struct Request *req, int cli_sock)
 
 				if(w == SSL_WRITE_E){
 					clear_response(&res);
-					return 0;
+					return 1;
 				}
 				clear_response(&res);
 				return 0;
@@ -470,9 +478,8 @@ static int process_request(struct Request *req, int cli_sock)
 
 				if(w == SSL_WRITE_E){
 					clear_response(&res);
-					return 0;
+					return 1;
 				}
-				/*CLEAR CDS and WRITE socket to parent*/
 				clear_response(&res);
 				return 0;
 			}
