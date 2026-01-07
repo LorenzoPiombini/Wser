@@ -13,8 +13,7 @@
 #include "monitor.h"
 
 static char prog[] = "ssl process";
-static void convert_fd_to_str(int fd, char *buf);
-static int process_request(struct Request *req, int cli_sock, int data_sock);
+static int process_request(struct Request *req, int cli_sock);
 static int handle_ssl_steps(struct Connection_data *cd, 
 							int cli_sock,
 							struct Request *req,
@@ -96,7 +95,7 @@ int SSL_work_process(int data_sock)
 			if(r == -1) goto teardown;
 			
 			if(r == 0){
-				if(process_request(&req,cli_sock,sock) == -1){
+				if(process_request(&req,cli_sock) == -1){
 					clear_request(&req);
 					goto teardown;
 				}
@@ -118,7 +117,7 @@ int SSL_work_process(int data_sock)
 					{		
 						r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 						if(r == 0){
-							process_request(&req,events[i].data.fd,-1);
+							process_request(&req,events[i].data.fd);
 							clear_request(&req);
 							goto teardown;
 						}
@@ -127,7 +126,7 @@ int SSL_work_process(int data_sock)
 					case 0:
 					{
 						/*process request*/
-						process_request(&req,events[i].data.fd,-1);
+						process_request(&req,events[i].data.fd);
 						goto teardown;
 					}
 					default:
@@ -402,7 +401,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 }
 
-static int process_request(struct Request *req, int cli_sock, int data_sock)
+static int process_request(struct Request *req, int cli_sock)
 {
 	/* process request*/
 	switch(req->method){
@@ -413,7 +412,7 @@ static int process_request(struct Request *req, int cli_sock, int data_sock)
 				/* Load content */	
 				if(load_resource(req->resource,&cont) == -1){
 					/*send not found response*/
-					if(generate_response(&res,404,NULL,req) == -1) break;
+					if(generate_response(&res,404,&cont,req) == -1) break;
 
 					int w = 0;
 					if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
@@ -475,16 +474,5 @@ static int process_request(struct Request *req, int cli_sock, int data_sock)
 			return 0;
 	}
 	return -1;
-}
-
-static void convert_fd_to_str(int fd, char *buf)
-{
-	int d = 3;
-	if(fd < 10 ) buf[d] = fd + '0';
-	while((fd / 10) > 0){
-		int i = fd % 10;
-		if(d >= 0) buf[d] = i + '0';
-		fd /= 10;
-	}
 }
 

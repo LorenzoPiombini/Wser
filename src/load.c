@@ -16,6 +16,8 @@ int load_resource(char *rpath, struct Content *cont)
 
 	FILE *fp = fopen(file_path,"rb");
 	if(!fp){
+		strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
+		cont->size = strlen(NOT_FOUND);
 		fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
 		return -1;
 	}

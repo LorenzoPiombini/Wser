@@ -23,18 +23,6 @@ char prog[] = "wser";
 #define MAX_LIST_LEN 256
 
 int cli_list_sock[MAX_LIST_LEN] = {0};
-static int add_sock_to_list(int fd)
-{
-	int i;
-	for(i = 0; i < MAX_LIST_LEN;i++){
-		if(cli_list_sock[i] == -1){
-			cli_list_sock[i] = fd;
-			return 0;
-		}
-	}
-	return -1;
-}
-
 static int remove_sock_from_list(int fd)
 {
 	int i;
@@ -282,7 +270,7 @@ int main(int argc, char **argv)
 							/* Load content */	
 							if(load_resource(req.resource,&cont) == -1){
 								/*send not found response*/
-								if(generate_response(&res,404,NULL,&req) == -1) break;
+								if(generate_response(&res,404,&cont,&req) == -1) break;
 
 								int w = 0;
 							if(secure){

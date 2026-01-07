@@ -454,6 +454,7 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			fprintf(stderr,"buffer is not big enough\n");
 			/*TODO: read the socket again*/
 		}
+		ssize_t sign_bread = 0;
 		if(handle_request(req) == BAD_REQ){
 			if(req->method == -1) return BAD_REQ;
 			if(req->size < (ssize_t)BASE) return BAD_REQ;
@@ -462,7 +463,7 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 				if(set_up_request(bread,req) == -1) return -1;
 
 				ssize_t move = req->size;
-				if((bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
+				if((sign_bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
 					if(errno == EAGAIN || errno == EWOULDBLOCK) {
 						int e = errno;
 						if((add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLET)) == -1) return -1;
