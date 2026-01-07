@@ -23,7 +23,7 @@ int handle_request(struct Request *req)
 	else
 		strncpy(head,req->req,h_end);
 
-	if(parse_header(head, req) == -1) return BAD_REQ;
+	if(parse_header(head, req) == BAD_REQ) return BAD_REQ;
 
 	map_content_type(req);
 	if(req->method == POST){
