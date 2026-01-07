@@ -244,6 +244,6 @@ static int map_content_type(struct Request *req)
 		return 0;
 	} 
 	
-	strncpy(req->cont_type,"text/plain",MIN_HEAD_FIELD);
+	strncpy(req->cont_type,"text/html",MIN_HEAD_FIELD);
 	return 0;
 }
