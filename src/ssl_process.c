@@ -66,10 +66,13 @@ int SSL_work_process(int data_sock)
 		int sock = -1;
 		if((sock = accept(data_sock,NULL,NULL)) == -1){
 				/*TODO:*/	
+			continue;
 		}
 		errno = 0;
 		if(recvmsg(sock, &msgh, 0) == -1){
 				/*TODO:*/	
+			stop_listening(sock);
+			continue;
 		}
 
 		cmsgp = CMSG_FIRSTHDR(&msgh);
@@ -92,7 +95,10 @@ int SSL_work_process(int data_sock)
 			struct Request req = {0};
 			int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 
-			if(r == -1) goto teardown;
+			if(r == -1){
+				clear_request(&req);
+				goto teardown;
+			}
 			
 			if(r == 0){
 				if(process_request(&req,cli_sock) == -1){
