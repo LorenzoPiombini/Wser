@@ -61,12 +61,12 @@ int init_SSL(SSL_CTX **ctx){
 
 	/*apply the selction options */
 	SSL_CTX_set_options(*ctx, opts);
-	if(SSL_CTX_use_certificate_chain_file(*ctx,"/etc/letsencrypt/live/lorenzopiombini.com/fullchain.pem") <= 0 ) {
+	if(SSL_CTX_use_certificate_chain_file(*ctx,"/path/to/your/certificate") <= 0 ) {
 		fprintf(stderr,"error use certificate.\n");
 		return -1;
 	}
 
-	if(SSL_CTX_use_PrivateKey_file(*ctx, "/etc/letsencrypt/live/lorenzopiombini.com/privkey.pem",SSL_FILETYPE_PEM) <= 0) {
+	if(SSL_CTX_use_PrivateKey_file(*ctx, "path/to/your/private.key",SSL_FILETYPE_PEM) <= 0) {
 		fprintf(stderr,"error use privatekey ");
 		return -1;
 	}
