@@ -197,6 +197,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 		if(!SSL_set_fd(*ssl,cli_sock)) {
 			fprintf(stderr,"error setting socket to SSL context.\n");
 			SSL_free(*ssl);
+			*ssl = NULL;
 			return SSL_SET_E;		
 		}		
 
@@ -297,20 +298,10 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				}else if (bread == BASE){
 					fprintf(stderr,"the issue is not enogh space in the buffer\n");
 					ERR_print_errors_fp(stderr);
-					SSL_free(cd[i].ssl);
-					cd[i].fd = -1;
-					cd[i].ssl = NULL;
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
 					return -1;
 				}else{
 					fprintf(stderr,"the error happens when reading SSL after handshake\n");
 					ERR_print_errors_fp(stderr);
-					SSL_free(cd[i].ssl);
-					cd[i].fd = -1;
-					cd[i].ssl = NULL;
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
 					return -1;
 				}
 			}
@@ -350,11 +341,6 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				}else{
 					fprintf(stderr,"the error happens when retrying read\n");
 					ERR_print_errors_fp(stderr);
-					SSL_free(cd[i].ssl);
-					cd[i].fd = -1;
-					cd[i].ssl = NULL;
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
 					return -1;
 				}
 			}
@@ -403,11 +389,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				}else{
 
 					ERR_print_errors_fp(stderr);
-					clean_connecion_data(cds,cd[i].fd);
 					return -1;
 				}
 			}
-			clean_connecion_data(cds,cd[i].fd);
 			return WRITE_OK;
 		}
 	}

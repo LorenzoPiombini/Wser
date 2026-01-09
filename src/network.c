@@ -359,8 +359,10 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 
 		return;
 	}
+
 	int i;
 	for(i = 0; i < MAX_CON_DAT_ARR; i++){
+		
 		cd[i].fd = -1;
 		if(cd[i].ssl) SSL_free(cd[i].ssl);
 		cd[i].retry_read = NULL;
