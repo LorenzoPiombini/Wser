@@ -20,28 +20,6 @@
 char prog[] = "wser";
 
 #define USE_FORK 1
-#define MAX_LIST_LEN 256
-
-int cli_list_sock[MAX_LIST_LEN] = {0};
-static int remove_sock_from_list(int fd)
-{
-	int i;
-	for(i = 0; i < MAX_LIST_LEN;i++){
-		if(cli_list_sock[i] == fd){
-			cli_list_sock[i] = -1;
-			return 0;
-		}	
-	}
-	return -1;
-}
-static int find_first_free()
-{
-	int i;
-	for(i = 0; i < MAX_LIST_LEN;i++){
-		if(cli_list_sock[i] == -1) return i;
-	}
-	return -1;
-}
 
 int main(int argc, char **argv)
 {	
@@ -67,10 +45,6 @@ int main(int argc, char **argv)
 	if(handle_sig() == -1) return -1;
 
 	fprintf(stdout,"(%s): listening on port %d...\n",prog,port);
-
-	
-
-	memset(cli_list_sock,-1,sizeof(int)*10);
 
 	/* setup needed in case we use secure connection
 	 * to send client socket file descriptors to the SSL process
@@ -138,7 +112,6 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
-	int data_sock = -1;
 	int cli_sock = -1;
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
@@ -158,20 +131,9 @@ int main(int argc, char **argv)
 
 					if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
-					int x = find_first_free();
-					if(x == -1){
-						fprintf(stdout,"err! client socket llist is full");
-						continue;
-					}
 					memcpy(CMSG_DATA(cmsgp), &cli_sock, sizeof(int));
-					data_sock = connect_UNIX_socket(-1);
-					if(add_socket_to_monitor(data_sock, EPOLLIN) == -1){
-						kill(ssl_handle_child,SIGINT);
-						stop_listening(con);
-						stop_monitor();	
-						return -1;
-					}
 
+					int data_sock = connect_UNIX_socket(-1);
 					/*send ancillary data to data sock*/
 					if(sendmsg(data_sock, &msgh,0) == -1){
 						stop_listening(cli_sock);
@@ -186,10 +148,7 @@ int main(int argc, char **argv)
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
 				}
 
-				if(r == EAGAIN || 
-						r == EWOULDBLOCK 	|| 
-						r == HANDSHAKE 		|| 
-						r == SSL_READ_E) continue;
+				if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
 #if USE_FORK
 				pid_t child = fork();
@@ -208,42 +167,24 @@ int main(int argc, char **argv)
 						if(generate_response(&res,400,NULL,&req) == -1) break;
 
 						int w = 0;
-						if(secure){
-							if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-						}else{
-							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-						}
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 						if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
 #if USE_FORK
 							uint8_t ws = 0;
-							if(secure){
-								while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-									if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+							while((w = write_cli_sock(cli_sock,&res) != -1)){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-									ws = 1;
-									break;
-								}
-
-							}else{
-								while((w = write_cli_sock(cli_sock,&res) != -1)){
-									if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-									ws = 1;
-									break;
-								}
-
+								ws = 1;
+								break;
 							}
 							if(ws){
 								//clear_response(&res);
 								stop_listening(cli_sock);
-								if(secure) SSL_CTX_free(ctx);
 								exit(0);
 							}
 							//clear_response(&res);
 							stop_listening(cli_sock);
-							if(secure) SSL_CTX_free(ctx);
 							exit(1);
-
 #else
 							continue;
 #endif
@@ -253,7 +194,6 @@ int main(int argc, char **argv)
 						clear_request(&req);
 						clear_response(&res);
 						stop_listening(cli_sock);
-						if(secure) SSL_CTX_free(ctx);
 						exit(0);
 #else
 						remove_socket_from_monitor(cli_sock);
@@ -266,275 +206,207 @@ int main(int argc, char **argv)
 					struct Content cont;
 					memset(&cont,0,sizeof(struct Content));
 					switch(req.method){
-						case GET:
-							/* Load content */	
-							if(load_resource(req.resource,&cont) == -1){
-								/*send not found response*/
-								if(generate_response(&res,404,&cont,&req) == -1) break;
+					case GET:
+						/* Load content */	
+						if(load_resource(req.resource,&cont) == -1){
+							/*send not found response*/
+							if(generate_response(&res,404,&cont,&req) == -1) break;
 
-								int w = 0;
-							if(secure){
-									if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-								}else{
-									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-								}
-								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
-									uint8_t ws = 0;
-									if(secure){
-										while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-											if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-											ws = 1;
-											break;
-										}
+									ws = 1;
+									break;
+								}
 
-									}else{
-										while((w = write_cli_sock(cli_sock,&res) != -1)){
-											if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-											ws = 1;
-											break;
-										}
-
-									}
-
-									if(ws){
-										stop_listening(cli_sock);
-										clear_request(&req);
-										clear_content(&cont);
-										if(secure) SSL_CTX_free(ctx);
-										exit(0);
-									}
-
+								if(ws){
+									stop_listening(cli_sock);
 									clear_request(&req);
 									clear_content(&cont);
-									stop_listening(cli_sock);
-									if(secure) SSL_CTX_free(ctx);
-									exit(1);
+									exit(0);
 								}
 
 								clear_request(&req);
 								clear_content(&cont);
 								stop_listening(cli_sock);
-								if(secure) SSL_CTX_free(ctx);
 								exit(1);
+							}
+
+							clear_request(&req);
+							clear_content(&cont);
+							stop_listening(cli_sock);
+							exit(1);
 #else
-								clear_request(&req);
-								clear_content(&cont);
-								remove_socket_from_monitor(cli_sock);
-								continue;
+							clear_request(&req);
+							clear_content(&cont);
+							remove_socket_from_monitor(cli_sock);
+							continue;
 #endif
 #if USE_FORK
-								stop_listening(cli_sock);
-								clear_request(&req);
-								clear_content(&cont);
-								if(secure) SSL_CTX_free(ctx);
-								exit(0);
+							stop_listening(cli_sock);
+							clear_request(&req);
+							clear_content(&cont);
+							if(secure) SSL_CTX_free(ctx);
+							exit(0);
 
 #else 
-								clear_request(&req);
-								clear_content(&cont);
-								remove_socket_from_monitor(cli_sock);
-								continue;
-#endif
-							}
-
-							/*send 200 response*/
-							if(generate_response(&res,OK,&cont,&req) == -1) {
-								clear_content(&cont);
-#if USE_FORK
-								SSL_CTX_free(ctx);
-								if(secure) SSL_CTX_free(ctx);
-								exit(1);
-#endif
-							}
-
+							clear_request(&req);
 							clear_content(&cont);
-							int w = 0;
-							if(secure){
-								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-							}else{
-								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							remove_socket_from_monitor(cli_sock);
+							continue;
+#endif
+						}
+
+						/*send 200 response*/
+						if(generate_response(&res,OK,&cont,&req) == -1) {
+							/*TODO: server errror*/
+							clear_content(&cont);
+#if USE_FORK
+							exit(1);
+#endif
+						}
+
+						clear_content(&cont);
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+#if USE_FORK
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res) != -1)){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
 							}
-							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+							if(ws){
+								stop_listening(cli_sock);
+								clear_request(&req);
+								clear_response(&res);
+								exit(0);
+							}
+							clear_request(&req);
+							clear_response(&res);
+							stop_listening(cli_sock);
+							exit(1);
+#else
+							clear_response(&res);
+							clear_request(&req);
+							remove_socket_from_monitor(cli_sock);
+							continue;
+#endif
+
+						}
+
+						/*TODO: can we delete this ??*/
+						if(req.d_req)
+							fprintf(stdout,"%s\n",req.d_req);
+						else
+							fprintf(stdout,"%s\n",req.req);
+
+						clear_request(&req);
+						clear_response(&res);
+#if USE_FORK 
+
+						stop_listening(cli_sock);
+						exit(0);
+#else
+						remove_socket_from_monitor(cli_sock);
+						break;
+#endif
+					case OPTIONS:
+					{
+						size_t s = strlen(req.origin);
+						if(s != strlen(ORIGIN_DEF)) goto bad_request;
+
+						if(strncmp(req.origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0){
+
+bad_request:
+							/*send a bed request response*/
+							if(generate_response(&res,400,NULL,&req) == -1) break;
+
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
 								uint8_t ws = 0;
-								if(secure){
-									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-										ws = 1;
-										break;
-									}
-
-								}else{
-									while((w = write_cli_sock(cli_sock,&res) != -1)){
-										if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-										ws = 1;
-										break;
-									}
-
+									ws = 1;
+									break;
 								}
+
 								if(ws){
 									stop_listening(cli_sock);
 									clear_request(&req);
-									clear_response(&res);
-									if(secure) SSL_CTX_free(ctx);
 									exit(0);
 								}
-								clear_request(&req);
-								clear_response(&res);
+
 								stop_listening(cli_sock);
-								if(secure) SSL_CTX_free(ctx);
+								clear_request(&req);
 								exit(1);
 #else
-								clear_request(&req);
 								remove_socket_from_monitor(cli_sock);
+								clear_request(&req);
 								continue;
 #endif
-
 							}
 
-							if(req.d_req)
-								fprintf(stdout,"%s\n",req.d_req);
-							else
-								fprintf(stdout,"%s\n",req.req);
 
 							clear_request(&req);
 							clear_response(&res);
-#if USE_FORK 
-
+#if USE_FORK
 							stop_listening(cli_sock);
-							if(secure) SSL_CTX_free(ctx);
 							exit(0);
-#else
-							remove_socket_from_monitor(cli_sock);
-							break;
-#endif
-						case OPTIONS:
-							{
-								size_t s = strlen(req.origin);
-								if(s != strlen(ORIGIN_DEF)) goto bad_request;
-
-								if(strncmp(req.origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0){
-
-bad_request:
-									/*send a bed request response*/
-									if(generate_response(&res,400,NULL,&req) == -1) break;
-
-									int w = 0;
-									if(secure){
-										if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-									}else{
-										if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-									}
-									if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
-#if USE_FORK
-										uint8_t ws = 0;
-										if(secure){
-											while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-												if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
-
-												ws = 1;
-												break;
-											}
-
-										}else{
-											while((w = write_cli_sock(cli_sock,&res) != -1)){
-												if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-												ws = 1;
-												break;
-											}
-
-										}
-										if(ws){
-											stop_listening(cli_sock);
-											clear_request(&req);
-											if(secure) SSL_CTX_free(ctx);
-											exit(0);
-										}
-
-										stop_listening(cli_sock);
-										clear_request(&req);
-										if(secure) SSL_CTX_free(ctx);
-										exit(1);
-#else
-										remove_socket_from_monitor(cli_sock);
-										clear_request(&req);
-										continue;
-#endif
-								}
-
-
-								clear_request(&req);
-								clear_response(&res);
-#if USE_FORK
-								stop_listening(cli_sock);
-								if(secure) SSL_CTX_free(ctx);
-								exit(0);
 #else 
-								remove_socket_from_monitor(cli_sock);
-								continue;
+							remove_socket_from_monitor(cli_sock);
+							continue;
 #endif
 
-							}
+						}
 
-							/*send a response to the options request*/
-							if(generate_response(&res,200,NULL,&req) == -1) break;
+						/*send a response to the options request*/
+						if(generate_response(&res,200,NULL,&req) == -1) break;
 
-							clear_request(&req);
-							int w = 0;
-							if(secure){
-								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-							}else{
-								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-							}
-							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+						clear_request(&req);
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
 								uint8_t ws = 0;
-								if(secure){
-									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-										ws = 1;
-										break;
-									}
+									ws = 1;
+									break;
+								}
 
-									}else{
-										while((w = write_cli_sock(cli_sock,&res) != -1)){
-											if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-											ws = 1;
-											break;
-										}
-
-									}
 								if(ws){
 									stop_listening(cli_sock);
 									clear_response(&res);
-									if(secure) SSL_CTX_free(ctx);
 									exit(0);
 								}
 #else
 								remove_socket_from_monitor(cli_sock);
 								continue;
 #endif
-							}
+						}
 
 							clear_response(&res);
 
 #if USE_FORK
 							stop_listening(cli_sock);
-							if(secure) SSL_CTX_free(ctx);
 							exit(0);
 #else
 							remove_socket_from_monitor(cli_sock);
 							continue;
 #endif
-						}
+					}
 					case DELETE:
 					case POST:
 					case PUT:
@@ -544,41 +416,24 @@ bad_request:
 
 							clear_request(&req);
 							int w = 0;
-							if(secure){
-								if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-							}else{
-								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-							}
-							if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
 								uint8_t ws = 0;
-								if(secure){
-									while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-										if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-										ws = 1;
-										break;
-									}
-
-								}else{
-									while((w = write_cli_sock(cli_sock,&res) != -1)){
-										if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-										ws = 1;
-										break;
-									}
-
+									ws = 1;
+									break;
 								}
 
 								if(ws){
 									stop_listening(cli_sock);
 									clear_request(&req);
-									if(secure) SSL_CTX_free(ctx);
 									exit(0);
 								}
 								stop_listening(cli_sock);
 								clear_request(&req);
-								if(secure) SSL_CTX_free(ctx);
 								exit(1);
 #else
 								remove_socket_from_monitor(cli_sock);
@@ -591,14 +446,13 @@ bad_request:
 
 #if USE_FORK
 							stop_listening(cli_sock);
-							if(secure) SSL_CTX_free(ctx);
 							exit(0);
 #else 
 							remove_socket_from_monitor(cli_sock);
 							break;
 #endif
-					}
-					}
+					}/*end default case*/
+					}/*end switch statement*/
 				}
 				/* parent */
 				remove_socket_from_monitor(cli_sock);
@@ -608,58 +462,18 @@ bad_request:
 
 
 			}else{ /*SECOND BRANCH*/
-
-				if(secure){
-					/*the ssl process send the fds that we can close */
-					char buffer[5] = {0};
-					if(read(events[i].data.fd,buffer,5) == -1){
-						fprintf(stderr,"could not read unix socket\n");
-						continue;
-					}
-
-					int x,c, fd = 0, sz = (int)strlen(buffer);
-					for(x = sz - 1 , c = 0; x <= 0; x--,c++ ){
-						switch(c){
-							case 0:
-								fd += (int)buffer[x] - '0';
-								break;
-							case 1:
-								fd += ((int)buffer[x] - '0') * 10;
-								break;
-							case 2:
-								fd += ((int)buffer[x] - '0') * 100;
-								break;
-							case 3:
-								fd += ((int)buffer[x] - '0') * 1000;
-								break;
-						}
-					}
-
-					remove_sock_from_list(fd);
-					remove_socket_from_monitor(events[i].data.fd);
-					stop_listening(fd);
-					continue;
-				}
 				int r = 0;
 				printf("sock nr %d\n",events[i].data.fd);
 				if(events[i].events == EPOLLIN) {
-
-					if(secure){
-						if((r = read_cli_sock_SSL(events[i].data.fd,&req,cds)) == -1) break;
-					}else{
 						if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
-					}
-
-					if(r == EAGAIN || r == EWOULDBLOCK || r == HANDSHAKE || 
-							r == SSL_READ_E || r == NO_CON_DATA) continue;
-
+					if(r == EAGAIN || r == EWOULDBLOCK) continue;
 #if USE_FORK 
 					pid_t child = fork();
 					if(child == -1){
 						continue;
 					}
 #else
-					pid_t child =0;
+					pid_t child = 0;
 
 #endif
 					if(child == 0){
@@ -668,7 +482,6 @@ bad_request:
 						if(r == BAD_REQ) {
 							/*send a bed request response*/
 #if USE_FORK
-							if(secure) SSL_CTX_free(ctx);
 							exit(1);
 #else
 							continue;
@@ -678,10 +491,9 @@ bad_request:
 						struct Content cont;
 						memset(&cont,0,sizeof(struct Content));
 						switch(req.method){
-							case GET:
+						case GET:
 								/* Load content */	
 								if(load_resource(req.resource,&cont) == -1){
-									printf("sending 404.\n");
 									/*send not found response*/
 
 									if(generate_response(&res,404,NULL,&req) == -1) break;
@@ -689,39 +501,21 @@ bad_request:
 
 									clear_content(&cont);
 									clear_request(&req);
-									printf("header is \n%s\n",res.header_str);
 									int w = 0;
-									if(secure){
-										if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-									}else{
-										if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-									}
-									if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
 										uint8_t ws = 0;
-										if(secure){
-											while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-												if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-												ws = 1;
-												break;
-											}
-
-										}else{
-											while((w = write_cli_sock(cli_sock,&res) != -1)){
-												if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-												ws = 1;
-												break;
-											}
-
+											ws = 1;
+											break;
 										}
+
 										clear_request(&req);
-										if(ws){
-											if(secure) SSL_CTX_free(ctx);
-											exit(0);
-										}
-										if(secure) SSL_CTX_free(ctx);
+										if(ws) exit(0);
+
 										exit(1);
 #else
 										clear_request(&req);
@@ -731,9 +525,8 @@ bad_request:
 								}
 								/* send response */
 								if(generate_response(&res,OK,&cont,&req) == -1){
-									/*server error 500*/
+									/*TODO:server error 500*/
 #if USE_FORK 
-									if(secure) SSL_CTX_free(ctx);
 									exit(0);
 #else 
 									continue;
@@ -744,48 +537,31 @@ bad_request:
 								printf("2nd branch: response header is\n%s\n",res.header_str);
 								printf("writing to client.\n");
 								int w = 0;
-								if(secure){
-									if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-								}else{
-									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-								}
-								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
 									uint8_t ws = 0;
-									if(secure){
-										while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-											if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-											ws = 1;
-											break;
-										}
-
-									}else{
-										while((w = write_cli_sock(cli_sock,&res) != -1)){
-											if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-											ws = 1;
-											break;
-										}
-
+										ws = 1;
+										break;
 									}
 
 									if(ws){
 										stop_listening(events[i].data.fd);
 										clear_response(&res);		
-										if(secure) SSL_CTX_free(ctx);
 										exit(0);
 									}
 
 									stop_listening(events[i].data.fd);
 									clear_response(&res);		
-									if(secure) SSL_CTX_free(ctx);
 									exit(1);
 #else 
 									continue;
 #endif
 								}
-
+								/*TODO: can we delete this??*/
 								if(req.d_req)
 									fprintf(stdout,"%s\n",req.d_req);
 								else
@@ -794,19 +570,16 @@ bad_request:
 
 								clear_request(&req);
 								clear_response(&res);		
-
 #if USE_FORK
 								stop_listening(events[i].data.fd);
-								if(secure) SSL_CTX_free(ctx);
 								exit(0);
 #else
 								remove_socket_from_monitor(events[i].data.fd);
 								continue;
 #endif
 							default:
-								/*send a bad request response*/
+								/* TODO:send a bad request response*/
 #if USE_FORK
-								if(secure) SSL_CTX_free(ctx);
 								exit(0);
 #else
 								continue;
@@ -818,42 +591,25 @@ bad_request:
 					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
-					if(secure){
-						if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-					}else{
-						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-					}
-					if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+					if(w == EAGAIN || w == EWOULDBLOCK){
 #if USE_FORK
 						uint8_t ws = 0;
-						if(secure){
-							while((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E) continue;
+						while((w = write_cli_sock(cli_sock,&res) != -1)){
+							if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
 								ws = 1;
 								break;
-							}
-
-						}else{
-							while((w = write_cli_sock(cli_sock,&res) != -1)){
-								if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-								ws = 1;
-								break;
-							}
-
 						}
 
 						if(ws){
 							clear_response(&res);
 							stop_listening(events[i].data.fd);
-							if(secure) SSL_CTX_free(ctx);
 							exit(0);
 						}
 
 						stop_listening(events[i].data.fd);
 						clear_request(&req);
-						if(secure) SSL_CTX_free(ctx);
 						exit(1);
 #else
 						clear_request(&req);
@@ -864,7 +620,6 @@ bad_request:
 					clear_response(&res);
 #if USE_FORK
 					stop_listening(events[i].data.fd);
-					if(secure) SSL_CTX_free(ctx);
 					exit(0);
 #else
 					break;
@@ -876,6 +631,7 @@ bad_request:
 
 	stop_monitor();
 	stop_listening(con);
+	kill(ssl_handle_child,SIGINT);
 	return 0;
 
 client:
