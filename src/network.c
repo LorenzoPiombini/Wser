@@ -142,8 +142,14 @@ int connect_UNIX_socket(int opt)
 		   }
 	   }
 
+	   errno = 0;
 	   int result = connect(sock_un,(const struct sockaddr*) &address_socket_family,sizeof(address_socket_family));
-	   if(result == -1) return -1;
+	   if(result == -1) {
+		   if(errno == ECONNREFUSED){
+			   fprintf(stderr," !!!!! you need a bigger que for UNIX_SOCK !!!!!!\n");
+		   }
+		   return -1;
+	   }
 
 	   return sock_un;
 

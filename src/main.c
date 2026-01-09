@@ -133,7 +133,13 @@ int main(int argc, char **argv)
 
 					memcpy(CMSG_DATA(cmsgp), &cli_sock, sizeof(int));
 
+					errno = 0;
 					int data_sock = connect_UNIX_socket(-1);
+					if(data_sock == -1){
+						stop_listening(cli_sock);
+						continue;
+					}
+
 					/*send ancillary data to data sock*/
 					if(sendmsg(data_sock, &msgh,0) == -1){
 						stop_listening(cli_sock);
