@@ -88,8 +88,7 @@ int SSL_work_process(int data_sock)
 		if(child == 0){
 			if(start_monitor(cli_sock) == -1) {
 				fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
-				kill(getppid(),SIGINT);
-				return -1;
+				goto teardown;
 			}
 
 			struct Request req = {0};
@@ -124,7 +123,7 @@ int SSL_work_process(int data_sock)
 					case HANDSHAKE:
 					{		
 						r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
-						if(r == 0){
+						if(r == 0 || r == 2){
 							if(process_request(&req,events[i].data.fd) == 1){
 								clear_request(&req);
 								continue;
@@ -387,7 +386,8 @@ static int handle_ssl_steps(struct Connection_data *cd,
 #endif
 				}
 			}
-			return 0;
+			cd[i].retry_read = NULL;
+			return 2;
 		}
 
 		if(cd[i].retry_write){
