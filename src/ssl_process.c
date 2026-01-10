@@ -65,7 +65,6 @@ int SSL_work_process(int data_sock)
 		/* Receive ancillary data; real data is ignored */
 		int sock = -1;
 		if((sock = accept(data_sock,NULL,NULL)) == -1){
-				/*TODO:*/	
 			continue;
 		}
 		errno = 0;
@@ -99,7 +98,7 @@ int SSL_work_process(int data_sock)
 				goto teardown;
 			}
 			
-			if(r == 0){
+			if(r == 0 || r == 2){
 				if(process_request(&req,cli_sock) == 1){
 					clear_request(&req);
 					continue;
@@ -111,7 +110,7 @@ int SSL_work_process(int data_sock)
 			int nfds =-1,i;
 			for(;;){
 				if((nfds = monitor_events()) == -1) goto teardown;
-				if(nfds == SIGINT) continue;
+				if(nfds == EINTR) goto teardown;
 				for(i = 0; i < nfds; i++){
 					int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
