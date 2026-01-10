@@ -44,6 +44,7 @@ int handle_request(struct Request *req)
 			}
 		}	
 
+		if(((req->size - h_end) - 1) <= 0) return BAD_REQ;
 		strncpy(req->req_body.content,&req->req[h_end],(req->size - h_end) - 1);
 	}
 	return 0;
