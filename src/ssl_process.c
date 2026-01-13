@@ -101,12 +101,13 @@ int SSL_work_process(int data_sock)
 			if(r == 0 || r == 2){
 				if(process_request(&req,cli_sock) == 1){
 					clear_request(&req);
-					continue;
+					goto loop;
 				}
 				clear_request(&req);
 				goto teardown;
 			}
 
+loop:
 			int nfds =-1,i;
 			for(;;){
 				if((nfds = monitor_events()) == -1) goto teardown;
@@ -416,7 +417,7 @@ static int process_request(struct Request *req, int cli_sock)
 					if(w == SSL_WRITE_E){
 						clear_response(&res);
 						clear_content(&cont);
-						return 0;
+						return 1;
 					}
 					clear_response(&res);
 					clear_content(&cont);
