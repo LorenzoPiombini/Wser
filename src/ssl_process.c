@@ -85,6 +85,7 @@ int SSL_work_process(int data_sock)
 
 		pid_t child = fork();
 		if(child == 0){
+			stop_listening(sock);
 			if(start_monitor(cli_sock) == -1) {
 				fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
 				goto teardown;
