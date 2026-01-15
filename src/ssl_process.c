@@ -146,6 +146,7 @@ loop:
 						goto teardown;
 					}
 					default:
+					remove_socket_from_monitor(cli_sock);
 					stop_listening(data_sock);
 					stop_monitor();
 					clear_request(&req);
@@ -156,6 +157,7 @@ loop:
 				}
 			}
 teardown:
+			remove_socket_from_monitor(cli_sock);
 			stop_listening(data_sock);
 			stop_listening(sock);
 			SSL_CTX_free(ctx);
