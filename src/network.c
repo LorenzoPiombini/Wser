@@ -14,6 +14,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <fcntl.h>
+#include <assert.h>
 #include "network.h"       
 #include "response.h"       
 #include "monitor.h"       
