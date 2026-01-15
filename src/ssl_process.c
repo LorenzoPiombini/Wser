@@ -217,7 +217,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
 						cd[i].retry_handshake = SSL_accept;
-						if(add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 							/*TODO*/
 						}
 						break;
@@ -264,6 +264,17 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			}
 		}
 
+		for(i = 0; i < MAX_CON_DAT_ARR;i++){
+			if(cd[i].fd == 0 || cd[i].fd == -1){
+				cd[i].fd = cli_sock;
+				cd[i].ssl = *ssl;
+				cd[i].retry_read = SSL_read_ex;
+				if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+					/*TODO*/
+				}
+				break;
+			}
+		}
 		if(bread == BASE){
 			/*
 			 * TODO: read again the socket,
