@@ -112,7 +112,9 @@ loop:
 			int nfds =-1,i;
 			for(;;){
 				if((nfds = monitor_events()) == -1) goto teardown;
-				if(nfds == EINTR) goto teardown;
+				if(nfds == EINTR){
+					continue; /*change with goto teardwn in prod*/
+				}
 				for(i = 0; i < nfds; i++){
 					int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
