@@ -229,15 +229,15 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 			int err = SSL_get_error(cd[i].ssl,r);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1){
-					SSL_free(cd[i].ssl);
-					remove_socket_from_monitor(cli_sock);
+					/*SSL_free(cd[i].ssl);*/
+					/*remove_socket_from_monitor(cli_sock);*/
 					return -1;
 				}
 				cd[i].retry_write = SSL_write_ex;
 				memcpy(&cd[i].res,res,sizeof(struct Response));
 				return SSL_WRITE_E;
 			}else{
-				remove_socket_from_monitor(cli_sock);
+				//remove_socket_from_monitor(cli_sock);
 				cd[i].fd = -1;
 				return -1;
 			}
@@ -251,8 +251,8 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 			int err = SSL_get_error(cd[i].ssl,r);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) {
-					SSL_free(cd[i].ssl);
-					remove_socket_from_monitor(cli_sock);
+				//	SSL_free(cd[i].ssl);
+				//	remove_socket_from_monitor(cli_sock);
 					return -1;
 				}
 
@@ -267,7 +267,7 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 			fprintf(stderr,"(%s): cannot write to socket.\n",prog);
 			return -1;
 		}
-		remove_socket_from_monitor(cli_sock);
+		//remove_socket_from_monitor(cli_sock);
 		cd[i].fd = -1;
 		free(buff);
 	}
