@@ -415,7 +415,6 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 static int process_request(struct Request *req, int cli_sock)
 {
-	/* process request*/
 	switch(req->method){
 		case GET:
 			{

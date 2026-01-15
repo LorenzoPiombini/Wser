@@ -190,7 +190,8 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		if(cd[i].fd == cli_sock) break;
 	}
 
-	if(i >= MAX_CON_DAT_ARR) return -1;
+	/*if(i >= MAX_CON_DAT_ARR) return -1;*/
+	assert(i < MAX_CON_DAT_ARR);
 
 	size_t l = strlen(res->header_str);
 	size_t buff_l = res->body.size + l + 1;
