@@ -89,7 +89,7 @@ int SSL_work_process(int data_sock)
 		time_t end = 0;
 		if(child == 0){
 			time_t start = time(NULL);
-			end = t + TIME_OUT;
+			end = start + TIME_OUT;
 
 			stop_listening(sock);
 			if(start_monitor(cli_sock) == -1) {
