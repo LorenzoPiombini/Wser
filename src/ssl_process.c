@@ -442,50 +442,54 @@ static int process_request(struct Request *req, int cli_sock)
 {
 	switch(req->method){
 		case GET:
-			{
-				struct Response res = {0};
-				struct Content cont = {0};
-				/* Load content */	
-				if(load_resource(req->resource,&cont) == -1){
-					/*send not found response*/
-					if(generate_response(&res,404,&cont,req) == -1) break;
+		{
+			struct Response res = {0};
+			struct Content cont = {0};
+			/* Load content */	
+			if(load_resource(req->resource,&cont) == -1){
+				/*send not found response*/
+				if(generate_response(&res,404,&cont,req) == -1) break;
 
-					int w = 0;
-					if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-					if(w == SSL_WRITE_E){
-						clear_response(&res);
-						clear_content(&cont);
-						return 1;
-					}
-					clear_response(&res);
-					clear_content(&cont);
-					return 0;
-				}
-
-				/*send 200 response*/
-				if(generate_response(&res,OK,&cont,req) == -1) {
-					clear_content(&cont);
-					clear_response(&res);
-					return 0;
-				}
-
-				clear_content(&cont);
 				int w = 0;
-				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
-					clear_response(&res);
-					return 0;
-				}
-
+				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
 				if(w == SSL_WRITE_E){
 					clear_response(&res);
+					clear_content(&cont);
 					return 1;
 				}
 				clear_response(&res);
+				clear_content(&cont);
 				return 0;
 			}
-		case BAD_REQ:
-			{
-				struct Response res = {0};
+
+			/*send 200 response*/
+			if(generate_response(&res,OK,&cont,req) == -1) {
+				clear_content(&cont);
+				clear_response(&res);
+				return 0;
+			}
+
+			clear_content(&cont);
+			int w = 0;
+			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+				clear_response(&res);
+				return 0;
+			}
+
+			if(w == SSL_WRITE_E){
+				clear_response(&res);
+				return 1;
+			}
+			clear_response(&res);
+			return 0;
+		}
+		case OPTIONS:
+		{
+			struct Response res = {0};
+			size_t s = strlen(req->origin);
+			if(s != strlen(ORIGIN_DEF) 
+					|| strncmp(req->origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0) {
+				/*send bad request*/
 				/*send a bed request response*/
 				if(generate_response(&res,400,NULL,req) == -1) {
 					clear_response(&res);
@@ -505,6 +509,51 @@ static int process_request(struct Request *req, int cli_sock)
 				clear_response(&res);
 				return 0;
 			}
+
+			/*send a response to the options request*/
+			if(generate_response(&res,200,NULL,req) == -1) break;
+
+			clear_request(req);
+			int w = 0;
+
+			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+				clear_response(&res);
+				return -1;
+			}
+
+			if(w == SSL_WRITE_E){
+				clear_response(&res);
+				return 1;
+			}
+
+			clear_response(&res);
+			return 0;
+		}
+		case BAD_REQ:
+		{
+			struct Response res = {0};
+			/*send a bed request response*/
+			if(generate_response(&res,400,NULL,req) == -1) {
+				clear_response(&res);
+				return -1;
+			}
+
+			int w = 0;
+			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+				clear_response(&res);
+				return -1;
+			}
+
+			if(w == SSL_WRITE_E){
+				clear_response(&res);
+				return 1;
+			}
+			clear_response(&res);
+			return 0;
+		}
+		case DELETE:
+		case POST:
+		case PUT:
 		default:
 			return 0;
 	}
