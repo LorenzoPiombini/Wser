@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 #include "load.h"
 #include "ssl_process.h"
 #include "network.h"
@@ -12,6 +13,7 @@
 #include "response.h"
 #include "monitor.h"
 
+#define TIME_OUT 60*20*1000 /*20 minutes in milliseconds*/
 static char prog[] = "ssl process";
 static int process_request(struct Request *req, int cli_sock);
 static int handle_ssl_steps(struct Connection_data *cd, 
@@ -84,7 +86,11 @@ int SSL_work_process(int data_sock)
 		memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
 
 		pid_t child = fork();
+		time_t end = 0;
 		if(child == 0){
+			time_t start = time(NULL);
+			end = t + TIME_OUT;
+
 			stop_listening(sock);
 			if(start_monitor(cli_sock) == -1) {
 				fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
@@ -111,10 +117,17 @@ int SSL_work_process(int data_sock)
 loop:
 			int nfds =-1,i;
 			for(;;){
+				time_t t = time(NULL);
+				if(t > end && end != 0) goto teardown;
+
 				if((nfds = monitor_events()) == -1) goto teardown;
 				if(nfds == EINTR){
 					continue; /*change with goto teardwn in prod*/
 				}
+	
+				t = time(NULL);
+				if(t > end && end != 0) goto teardown;
+
 				for(i = 0; i < nfds; i++){
 					int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
