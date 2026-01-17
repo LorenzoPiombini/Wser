@@ -306,6 +306,8 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){
 					return HANDSHAKE;	
 				}else{
+					return -1;
+					/*
 					fprintf(stderr,"the error happens when retrying handshake\n");
 					ERR_print_errors_fp(stderr);
 					SSL_free(cd[i].ssl);
@@ -314,6 +316,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					cd[i].retry_handshake = NULL;
 					cd[i].retry_read = NULL;
 					return -1;
+					*/
 				}
 			}
 			cd[i].retry_handshake = NULL;
@@ -329,9 +332,12 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					ERR_print_errors_fp(stderr);
 					return -1;
 				}else{
+					return -1;
+					/*
 					fprintf(stderr,"the error happens when reading SSL after handshake\n");
 					ERR_print_errors_fp(stderr);
 					return -1;
+					*/
 				}
 			}
 
@@ -368,9 +374,12 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 					return SSL_READ_E; 
 				}else{
+					return -1;
+					/*
 					fprintf(stderr,"the error happens when retrying read\n");
 					ERR_print_errors_fp(stderr);
 					return -1;
+					*/
 				}
 			}
 
@@ -417,6 +426,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					return SSL_WRITE_E;
 				}else{
 
+					return -1;
 					ERR_print_errors_fp(stderr);
 					return -1;
 				}
