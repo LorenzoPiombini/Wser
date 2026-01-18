@@ -10,6 +10,9 @@
 
 static char prog[] = "wser";
 int hdl_sock = -1;
+pid_t db_proc = -1;
+pid_t ssl_proc = -1;
+
 static void handler(int signo);
 
 int handle_sig()
@@ -27,6 +30,7 @@ int handle_sig()
 	if(/*sigaction(SIGSEGV, &act, NULL) == -1 ||*/
 			sigaction(SIGINT,&act,NULL) == -1 || 
 			sigaction(SIGPIPE,&act,NULL) == -1 ||
+			sigaction(SIGTERM,&act,NULL) == -1 ||
 			sigaction(SIGCHLD,&act_child_process,NULL) == -1){
 		fprintf(stderr,"(%s): cannot handle the signal.\n",prog);
 		return -1;
@@ -37,17 +41,33 @@ int handle_sig()
 static void handler(int signo)
 {
 	switch(signo){
-	/*case SIGSEGV:*/
+	/*case SIGSEGV:*/ /* in production you might want this on*/
 	case SIGINT:
+	case SIGTERM:
 	case SIGPIPE:
 		stop_monitor();	
 		stop_listening(hdl_sock);
-		if(ctx) SSL_CTX_free(ctx);
-		clean_connecion_data(cds,-1);
+		pid_t p = getpid();
+		if(p == ssl_proc){			
+			if(db_proc != -1) 
+				kill(db_proc,SIGTERM);
+
+			if(ctx) SSL_CTX_free(ctx);
+			clean_connecion_data(cds,-1);
+		}
+		
+		if( p != db_proc && p != ssl_proc){
+			if(ssl_proc != -1) 
+				kill(ssl_proc,SIGTERM);
+		}
+
+		/*terminate all the child*/
 		if(signo == SIGINT)
 			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGINT");
 		else if(signo== SIGPIPE)
 			fprintf(stderr,"(%s):cleaning on interrupt, recived %s.\n",prog,"SIGPIPE");
+		else if(signo== SIGTERM)
+			fprintf(stderr,"(%s):cleaning on interrupt, recived %s.\n",prog,"SIGTERM");
 		else 
 			fprintf(stderr,"(%s):cleaning on interrupt, recived %s.\n",prog,"SIGSEGV");
 		break;
