@@ -18,6 +18,51 @@ int handle_request(struct Request *req)
 
 	char head[h_end+1];
 	memset(head,0,h_end+1);
+
+	strncpy(head,req->d_req,h_end);
+
+	if(parse_header(head, req) == -1) return BAD_REQ;
+
+	map_content_type(req);
+	if(req->method == POST){
+		/*we should have a body*/
+		if((req->size - h_end) == 0) 
+			return BDY_MISS;
+
+		if((req->size - h_end) < STD_REQ_BDY_CNT){
+			
+			if(((req->size - h_end) - 1) <= 0) 
+				return BAD_REQ;
+
+			strncpy(req->req_body.content,&req->d_req[h_end],(req->size - h_end)-1);
+			return 0;
+		}else{
+			req->req_body.d_cont = (char *)calloc(req->size - h_end,sizeof(char));
+			if(!req->req_body.d_cont){
+				fprintf(stderr,"(%s): calloc failed, %s:%d\n",
+						prog,__FILE__,__LINE__-2);
+				return BAD_REQ;
+			}
+
+			if(((req->size - h_end) - 1) <= 0)
+				return BAD_REQ;
+
+			strncpy(req->req_body.d_cont, &req->d_req[h_end],(req->size -h_end) - 1);
+			req->req_body.size = req->size - h_end;
+			return 0;
+		}
+	}
+	return 0;
+}
+
+/*TODO: delete this old method*/
+static int OLD_handle_request(struct Request *req)
+{
+	int h_end = 0;
+	if((h_end = get_headers_block(req)) == -1) return BAD_REQ;	
+
+	char head[h_end+1];
+	memset(head,0,h_end+1);
 	if(req->d_req)
 		strncpy(head,req->d_req,h_end);
 	else
@@ -73,7 +118,6 @@ void clear_request(struct Request *req)
 	memset(req->req_body.content,0,STD_REQ_BDY_CNT);
 }
 
-
 static int parse_header(char *head, struct Request *req)
 {
 	char *crlf = NULL;
@@ -85,6 +129,7 @@ static int parse_header(char *head, struct Request *req)
 	int te_f = 0, cl_f = 0;
 	while((crlf = strstr(&head[start],"\r"))){
 		if(te_f && cl_f) return BAD_REQ; /*protecting from HTTP request smuggling*/
+
 		if (start > 0){
 			int end = crlf - head;
 			size_t s = end - start;
@@ -100,16 +145,24 @@ static int parse_header(char *head, struct Request *req)
 				start = end + 2;
 				continue;
 			}
-			
+
 			if((b = strstr(t,"Content-Length:"))){
-				if(cl_f) return BAD_REQ;
 				b += strlen("Content-Length: ");
-				strncpy(req->cont_length,b,strlen(b));
+				char *endptr;
+				errno = 0;
+				req->cont_length = (ssize_t)strtol(b,&endptr,10);
+				if(errno == EINVAL 
+						|| errno == ERANGE
+						|| strncmp(endptr,b,strlen(b)) == 0){
+					printf("string to number conversion failed\n");
+					req->cont_length = 0;
+					return BAD_REQ;
+				}
 				*crlf = ' ';
 				start = end + 2;
-				cl_f = 1;
 				continue;
 			}
+
 			if((b = strstr(t,"Transfer-Encoding:"))){
 				if(te_f) return BAD_REQ;
 				b += strlen("Transfer-Encoding: ");
@@ -128,6 +181,15 @@ static int parse_header(char *head, struct Request *req)
 				continue;
 			}
 
+			if((b = strstr(t,"Access-Control-Request-Headers:"))){
+				b += strlen("Access-Control-Request-Headers: ");
+				strncpy(req->access_control_request_headers,b,strlen(b));
+				*crlf = ' ';
+				start = end + 2;
+				continue;
+			}
+
+
 			if((b = strstr(t,"Origin:"))){
 				b += strlen("Origin: ");
 				strncpy(req->origin,b,strlen(b));
@@ -135,6 +197,23 @@ static int parse_header(char *head, struct Request *req)
 				start = end + 2;
 				continue;
 			}
+
+			if((b = strstr(t,"Connection:"))){
+				b += strlen("Connection: ");
+				strncpy(req->connection,b,strlen(b));
+				*crlf = ' ';
+				start = end + 2;
+				continue;
+			}
+
+			if((b = strstr(t,"Content-Type:"))){
+				b += strlen("Content-Type: ");
+				strncpy(req->cont_type,b,strlen(b));
+				*crlf = ' ';
+				start = end + 2;
+				continue;
+			}
+
 			*crlf = ' ';
 			start = end + 2;
 			continue;
