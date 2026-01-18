@@ -15,6 +15,10 @@
 #define WRITE_OK 24
 #define INT_PROC_SOCK_SSL "/tmp/TLS_SSL_operation.socket"
 
+#if OWN_DB
+	#define INT_PROC_SOCK_DB  "/tmp/db_operation.socket"
+#endif /*OWN_DB -make flag-*/
+
 extern SSL_CTX *ctx;
 
 #define MAX_HOST_LT 50
@@ -43,8 +47,8 @@ extern struct Connection_data cds[MAX_CON_DAT_ARR];
 int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
-int listen_UNIX_socket(int opt);
-int connect_UNIX_socket(int opt);
+int listen_UNIX_socket(int opt, char *sock_path);
+int connect_UNIX_socket(int opt, char *sock_path);
 void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);

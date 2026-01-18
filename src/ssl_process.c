@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <time.h>
 #include "load.h"
+#include "handlesig.h"
 #include "ssl_process.h"
 #include "network.h"
 #include "request.h"
@@ -25,6 +26,33 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 int SSL_work_process(int data_sock)
 {
+
+#ifdef OWN_DB
+	int work_proc_data_sock = -1;
+	int parent_data_sock = -1;
+
+	pid_t work_proc_pid = fork();
+
+	if(work_proc_pid == -1){
+		/*Parent*/
+		fprintf(stderr,"architecture cannot be implemented");
+		stop_listening(con);
+		return -1;
+	}
+
+	if(work_proc_pid == 0){
+		/* start DB handle process */	
+		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) exit(1);
+
+		work_process(work_proc_data_sock);
+		stop_listening(con);
+		stop_monitor();
+		return -1;
+	}
+	
+	db_proc = work_proc_pid;
+#endif /* OWN_DB -make flag*/
+
 	if(init_SSL(&ctx) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		kill(getppid(),SIGINT);
@@ -188,7 +216,6 @@ teardown:
 			stop_listening(sock);
 			continue;
 		}
-
 	}
 	SSL_CTX_free(ctx);
 	clean_connecion_data(cds,-1);

@@ -16,6 +16,16 @@ int load_resource(char *rpath, struct Content *cont)
 
 	FILE *fp = fopen(file_path,"rb");
 	if(!fp){
+#ifdef OWN_DB
+		/*
+		 * TODO: if ir is not a file could be a DB endpoint
+		 * 	so, in this case we need to implement a mapping function
+		 * 	that maps the endpoints correctly, so we can write/read the info
+		 * 	requested by the application, from the db.
+		 *
+		 *
+		 * */
+#endif
 		strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
 		cont->size = strlen(NOT_FOUND) + 1;
 		fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
