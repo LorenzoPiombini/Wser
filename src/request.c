@@ -19,7 +19,11 @@ int handle_request(struct Request *req)
 	char head[h_end+1];
 	memset(head,0,h_end+1);
 
-	strncpy(head,req->d_req,h_end);
+	if(req->d_req)
+		strncpy(head,req->d_req,h_end);
+	else
+		strncpy(head,req->req,h_end);
+
 
 	if(parse_header(head, req) == -1) return BAD_REQ;
 
@@ -34,7 +38,11 @@ int handle_request(struct Request *req)
 			if(((req->size - h_end) - 1) <= 0) 
 				return BAD_REQ;
 
-			strncpy(req->req_body.content,&req->d_req[h_end],(req->size - h_end)-1);
+			if(req->d_req)
+				strncpy(req->req_body.content,&req->d_req[h_end],(req->size - h_end)-1);
+			else
+				strncpy(req->req_body.content,&req->req[h_end],(req->size - h_end)-1);
+
 			return 0;
 		}else{
 			req->req_body.d_cont = (char *)calloc(req->size - h_end,sizeof(char));
@@ -47,7 +55,11 @@ int handle_request(struct Request *req)
 			if(((req->size - h_end) - 1) <= 0)
 				return BAD_REQ;
 
-			strncpy(req->req_body.d_cont, &req->d_req[h_end],(req->size -h_end) - 1);
+			if(req->d_req)
+				strncpy(req->req_body.d_cont, &req->d_req[h_end],(req->size -h_end) - 1);
+			else
+				strncpy(req->req_body.d_cont, &req->req[h_end],(req->size -h_end) - 1);
+
 			req->req_body.size = req->size - h_end;
 			return 0;
 		}
