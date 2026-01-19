@@ -46,7 +46,6 @@ int main(int argc, char **argv)
 
 	fprintf(stdout,"(%s): listening on port %d...\n",prog,port);
 
-
 	/* setup needed in case we use secure connection
 	 * to send client socket file descriptors to the SSL process
 	 * */
@@ -74,7 +73,7 @@ int main(int argc, char **argv)
 		/*start SSL handle processs*/
 		if(ssl_handle_child == 0){
 			int data_sock = -1;
-			if((data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_SSL)) == -1){
+			if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK,INT_PROC_SOCK_SSL)) == -1){
 				kill(ssl_handle_child,SIGINT);
 				exit(1);
 				return -1;

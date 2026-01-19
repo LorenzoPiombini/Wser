@@ -53,10 +53,16 @@ int SSL_work_process(int data_sock)
 	db_proc = work_proc_pid;
 #endif /* OWN_DB -make flag*/
 
-	if(init_SSL(&ctx) == -1){
+	if(start_monitor(data_sock) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		kill(getppid(),SIGINT);
-		return -1;
+		exit(-1);
+	}
+	if(init_SSL(&ctx) == -1){
+		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
+		stop_monitor();
+		kill(getppid(),SIGINT);
+		exit(-1);
 	}
 
 	/*setting up to receiving file descriptor from another process*/
@@ -92,115 +98,114 @@ int SSL_work_process(int data_sock)
 
 	SSL *ssl_cli = NULL;
 	for(;;){
-		/* Receive ancillary data; real data is ignored */
-		int sock = -1;
-		if((sock = accept(data_sock,NULL,NULL)) == -1){
-			continue;
+		
+		if((nfds = monitor_events()) == -1) goto teardown;
+		if(nfds == EINTR){
+			continue; /*change with goto teardwn in prod*/
 		}
-		errno = 0;
-		if(recvmsg(sock, &msgh, 0) == -1){
+
+		int i;
+		for(i = 0; i < nfds; i++){
+			/* Receive ancillary data; real data is ignored */
+			int sock = -1;
+			if((sock = accept(data_sock,NULL,NULL)) == -1){
+				continue;
+			}
+			errno = 0;
+			if(recvmsg(sock, &msgh, 0) == -1){
 				/*TODO:*/	
-			stop_listening(sock);
-			continue;
-		}
-
-		cmsgp = CMSG_FIRSTHDR(&msgh);
-		if (cmsgp == NULL
-				|| cmsgp->cmsg_len != CMSG_LEN(sizeof(int))
-				|| cmsgp->cmsg_level != SOL_SOCKET
-				|| cmsgp->cmsg_type != SCM_RIGHTS) continue;
-
-
-		memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
-
-		pid_t child = fork();
-		time_t end = 0;
-		if(child == 0){
-			time_t start = time(NULL);
-			end = start + TIME_OUT;
-
-			stop_listening(sock);
-			if(start_monitor(cli_sock) == -1) {
-				fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
-				goto teardown;
+				stop_listening(sock);
+				continue;
 			}
 
-			struct Request req = {0};
-			int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+			cmsgp = CMSG_FIRSTHDR(&msgh);
+			if (cmsgp == NULL
+					|| cmsgp->cmsg_len != CMSG_LEN(sizeof(int))
+					|| cmsgp->cmsg_level != SOL_SOCKET
+					|| cmsgp->cmsg_type != SCM_RIGHTS) continue;
 
-			if(r == -1){
-				clear_request(&req);
-				goto teardown;
-			}
-			
-			if(r == 0 || r == 2){
-				if(process_request(&req,cli_sock) == 1){
-					clear_request(&req);
-					goto loop;
+
+			memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
+
+			pid_t child = fork();
+			if(child == 0){
+				/*free resources that the child does not need*/
+				stop_monitor();
+				stop_listening(sock);
+				stop_listening(data_sock);
+
+				if(start_monitor(cli_sock) == -1) {
+					fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
+					goto teardown;
 				}
-				clear_request(&req);
-				goto teardown;
-			}
+
+				struct Request req = {0};
+				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+
+				if(r == -1){
+					clear_request(&req);
+					goto teardown;
+				}
+			
+				if(r == 0 || r == 2){
+					if(process_request(&req,cli_sock) == 1){
+						clear_request(&req);
+						goto loop;
+					}
+					clear_request(&req);
+					goto teardown;
+				}
 
 loop:
-			int nfds =-1,i;
-			for(;;){
-				time_t t = time(NULL);
-				if(t > end && end != 0) goto teardown;
-
-				if((nfds = monitor_events()) == -1) goto teardown;
-				if(nfds == EINTR){
-					continue; /*change with goto teardwn in prod*/
-				}
+				int nfds =-1,i;
+				for(;;){
+					if((nfds = monitor_events()) == -1) goto teardown;
+					if(nfds == EINTR){
+						continue; /*change with goto teardwn in prod*/
+					}
 	
-				t = time(NULL);
-				if(t > end && end != 0) goto teardown;
+					for(i = 0; i < nfds; i++){
+						int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
-				for(i = 0; i < nfds; i++){
-					int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+						if(r == -1)goto teardown;
 
-					if(r == -1)goto teardown;
-
-					switch(r){
-					case SSL_READ_E:
-					case SSL_WRITE_E:
-					case HANDSHAKE:
-					{		
-						r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
-						if(r == 0 || r == 2){
+						switch(r){
+						case SSL_READ_E:
+						case SSL_WRITE_E:
+						case HANDSHAKE:
+						{		
+							r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+							if(r == 0 || r == 2){
+								if(process_request(&req,events[i].data.fd) == 1){
+									clear_request(&req);
+									continue;
+								}
+								clear_request(&req);
+								goto teardown;
+							}
+							break;
+						}
+						case 0:
+						{
+							/*process request*/
 							if(process_request(&req,events[i].data.fd) == 1){
 								clear_request(&req);
 								continue;
 							}
-							clear_request(&req);
 							goto teardown;
 						}
-						break;
-					}
-					case 0:
-					{
-						/*process request*/
-						if(process_request(&req,events[i].data.fd) == 1){
-							clear_request(&req);
-							continue;
+						default:
+						remove_socket_from_monitor(cli_sock);
+						stop_monitor();
+						clear_request(&req);
+						clean_connecion_data(cds,-1);
+						SSL_CTX_free(ctx);
+						exit(1);
 						}
-						goto teardown;
-					}
-					default:
-					remove_socket_from_monitor(cli_sock);
-					stop_listening(data_sock);
-					stop_monitor();
-					clear_request(&req);
-					clean_connecion_data(cds,-1);
-					SSL_CTX_free(ctx);
-					exit(1);
 					}
 				}
-			}
 teardown:
 			remove_socket_from_monitor(cli_sock);
-			stop_listening(data_sock);
-			stop_listening(sock);
 			SSL_CTX_free(ctx);
 			clean_connecion_data(cds,-1);
 			stop_monitor();
@@ -215,6 +220,7 @@ teardown:
 			stop_listening(cli_sock);
 			stop_listening(sock);
 			continue;
+		}
 		}
 	}
 	SSL_CTX_free(ctx);
