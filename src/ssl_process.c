@@ -174,7 +174,7 @@ loop:
 						case SSL_WRITE_E:
 						case HANDSHAKE:
 						{		
-							r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 								if(process_request(&req,events[i].data.fd) == 1){
 									clear_request(&req);
@@ -307,7 +307,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				}
 				return SSL_READ_E; 
 			}else {
-				SSL_free(*ssl);
+				/*SSL_free(*ssl);*/
 				return -1;
 			}
 		}
@@ -327,6 +327,30 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			/*
 			 * TODO: read again the socket,
 			 * req is bigger than BASE = (1024 bytes)*/
+			return -1;
+		}
+
+		req->size = bread;
+		if(handle_request(req) == BAD_REQ){
+			if(req->method == -1) return BAD_REQ;
+			if(req->size < (ssize_t)BASE) return BAD_REQ;
+
+			if(req->size == (ssize_t)BASE){
+				if(set_up_request(bread,req) == -1) return -1;
+
+				ssize_t move = req->size;
+#if 0
+				if((bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
+					if(errno == EAGAIN || errno == EWOULDBLOCK) {
+						int e = errno;
+						/*TODO: add fd to poll*/
+						return e;
+					}
+					fprintf(stderr,"(%s): cannot read data from socket",prog);
+					return -1;
+				}
+#endif
+			}
 		}
 
 		return 0;
