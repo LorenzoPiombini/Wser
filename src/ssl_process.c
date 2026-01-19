@@ -278,7 +278,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			}else {
 				fprintf(stderr,"the error happens when trying handshake first time\n");
 				ERR_print_errors_fp(stderr);
-				SSL_free(*ssl);
+				/*SSL_free(*ssl);*/
 				return -1;
 			}
 		}
