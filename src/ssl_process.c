@@ -130,7 +130,6 @@ int SSL_work_process(int data_sock)
 			pid_t child = fork();
 			if(child == 0){
 				/*free resources that the child does not need*/
-				stop_monitor();
 				stop_listening(sock);
 				stop_listening(data_sock);
 
