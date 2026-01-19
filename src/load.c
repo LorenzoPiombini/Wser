@@ -12,7 +12,11 @@ static char *map_rpath(char *rpath);
 int load_resource(char *rpath, struct Content *cont)
 {
 	char *file_path = map_rpath(rpath);
-	if(!file_path) return -1;
+	if(!file_path) {
+		/*debug print*/
+		fprintf(stderr,"map_rpath failed for some reason\nrpath is %s\n",rpath);
+		return -1;
+	}
 
 	FILE *fp = fopen(file_path,"rb");
 	if(!fp){
