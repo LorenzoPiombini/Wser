@@ -10,6 +10,7 @@ static int get_headers_block(struct Request *req);
 static int parse_header(char *head, struct Request *req);
 static int get_method(char *method);
 static int map_content_type(struct Request *req);
+static int read_req_raw_bytes(struct Request *req);
 
 int handle_request(struct Request *req)
 {
@@ -65,6 +66,41 @@ int handle_request(struct Request *req)
 		}
 	}
 	return 0;
+}
+
+static int read_req_raw_bytes(struct Request *req)
+{
+	if(req->d_req){
+		int i = 0;
+		while(*req->d_req++){
+			if(*req->d_req < 0x20
+					&& (*req->d_req != '\n' || *req->d_req != '\r'))
+				return BAD_REQ;
+			if(*req->d_req == 0x7f)
+				return BAD_REQ;
+
+			i++;
+		}
+
+		if(i < req->size ) 
+			return BAD_REQ;
+	}else{
+		int i = 0;
+		while(*req->req++) {
+			if(*req->d_req < 0x20
+					&& (*req->d_req != '\n' && *req->d_req != '\r'))
+				return BAD_REQ;
+			if(*req->d_req == 0x7f)
+				return BAD_REQ;
+
+			i++;
+		}
+
+		if(i < req->size ) 
+			return BAD_REQ;
+	}
+
+	return 0;	
 }
 
 /*TODO: delete this old method*/
@@ -252,6 +288,13 @@ static int parse_header(char *head, struct Request *req)
 		}	
 		*crlf = ' ';
 		start = end + 2;
+	}
+
+	/*if the requset does not have tranfer-encoding header field
+	 * than it must be all readable ascii char if not, return BAD_REQ*/
+	if(!te_f){
+		if(read_req_raw_bytes(req) != 0)
+			return BAD_REQ;
 	}
 	return 0;
 }
