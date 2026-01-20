@@ -85,12 +85,13 @@ static int read_req_raw_bytes(struct Request *req)
 		if(i < req->size ) 
 			return BAD_REQ;
 	}else{
+		char *r = req->req;
 		int i = 0;
-		while(*req->req++) {
-			if(*req->d_req < 0x20
-					&& (*req->d_req != '\n' && *req->d_req != '\r'))
+		while(*r++) {
+			if(*r < 0x20
+					&& (*r != '\n' && *r != '\r'))
 				return BAD_REQ;
-			if(*req->d_req == 0x7f)
+			if(*r == 0x7f)
 				return BAD_REQ;
 
 			i++;
