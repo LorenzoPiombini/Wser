@@ -46,7 +46,6 @@ int SSL_work_process(int data_sock)
 
 		work_process(work_proc_data_sock);
 		stop_listening(con);
-		stop_monitor();
 		return -1;
 	}
 	
@@ -107,15 +106,30 @@ int SSL_work_process(int data_sock)
 		int i;
 		for(i = 0; i < nfds; i++){
 			/* Receive ancillary data; real data is ignored */
-			int sock = -1;
-			if((sock = accept(data_sock,NULL,NULL)) == -1){
-				continue;
-			}
-			errno = 0;
-			if(recvmsg(sock, &msgh, 0) == -1){
-				/*TODO:*/	
-				stop_listening(sock);
-				continue;
+			if(events[i].data.fd == data_sock){
+				int sock = -1;
+				if((sock = accept(data_sock,NULL,NULL)) == -1)
+					continue;
+
+				errno = 0;
+				if(recvmsg(sock, &msgh, 0) == -1){
+					if(add_socket_to_monitor(sock, EPOLLIN) == -1) 
+						continue;
+
+					if(errno == EAGAIN || errno == EWOULDBLOCK)
+						continue;
+
+					stop_listening(sock);
+					continue;
+				}
+			}else{
+				if(recvmsg(sock, &msgh, 0) == -1){
+					if(errno == EAGAIN || errno == EWOULDBLOCK)
+						continue;
+
+					stop_listening(sock);
+					continue;
+				}
 			}
 
 			cmsgp = CMSG_FIRSTHDR(&msgh);
