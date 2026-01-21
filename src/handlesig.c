@@ -14,7 +14,8 @@ int ssl_sock = -1;
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;
 
-static void handler(int signo);
+static void handler_main_process(int signo);
+static void handler_ssl_process(int signo);
 
 int handle_sig_main_process()
 {
@@ -70,7 +71,7 @@ static void handler_ssl_process(int signo)
 	case SIGPIPE:
 		stop_listening(ssl_sock);
 		SSL_CTX_free(ctx);
-		clean_connecion_data(cd,-1);
+		clean_connecion_data(cds,-1);
 		break;
 	default:
 

@@ -57,6 +57,7 @@ int SSL_work_process(int data_sock)
 		kill(getppid(),SIGINT);
 		exit(-1);
 	}
+
 	if(init_SSL(&ctx) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		stop_monitor();
@@ -106,8 +107,8 @@ int SSL_work_process(int data_sock)
 		int i;
 		for(i = 0; i < nfds; i++){
 			/* Receive ancillary data; real data is ignored */
+			int sock = -1;
 			if(events[i].data.fd == data_sock){
-				int sock = -1;
 				if((sock = accept(data_sock,NULL,NULL)) == -1)
 					continue;
 
