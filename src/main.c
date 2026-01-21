@@ -41,8 +41,6 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	hdl_sock  = con;
-	if(handle_sig() == -1) return -1;
 
 	fprintf(stdout,"(%s): listening on port %d...\n",prog,port);
 
@@ -70,7 +68,7 @@ int main(int argc, char **argv)
 			return -1;
 		}
 
-		/*start SSL handle processs*/
+		/*start SSL handle process*/
 		if(ssl_handle_child == 0){
 			int data_sock = -1;
 			if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK,INT_PROC_SOCK_SSL)) == -1){
@@ -79,10 +77,15 @@ int main(int argc, char **argv)
 				return -1;
 			}
 
+			/*start signal handle for this process*/
+			ssl_sock = data_sock;
+			if(handle_sig_ssl_process() == -1) exit(1);
+
 			SSL_work_process(data_sock);
 			stop_listening(con);
 			exit(1);
 		}
+
 		/*parent*/
 		/*set up to send client socket fd to the SSL process*/
 
@@ -107,6 +110,8 @@ int main(int argc, char **argv)
 	}
 
 	ssl_proc = ssl_handle_child;
+	hdl_sock  = con;
+	if(handle_sig_main_process() == -1) return -1;
 
 	if(start_monitor(con) == -1) {
 		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);

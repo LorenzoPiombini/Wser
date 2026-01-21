@@ -10,12 +10,13 @@
 
 static char prog[] = "wser";
 int hdl_sock = -1;
+int ssl_sock = -1;
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;
 
 static void handler(int signo);
 
-int handle_sig()
+int handle_sig_main_process()
 {
 	/*set up signal handler*/
 	struct sigaction act;
@@ -23,7 +24,7 @@ int handle_sig()
 
 	struct sigaction act_child_process;
 	memset(&act_child_process,0,sizeof(struct sigaction));
-	act.sa_handler = &handler;
+	act.sa_handler = &handler_main_process;
 	act_child_process.sa_handler = SIG_IGN;
 	act_child_process.sa_flags = SA_NOCLDWAIT;
 
@@ -38,7 +39,47 @@ int handle_sig()
 	return 0;
 }
 
-static void handler(int signo)
+int handle_sig_ssl_process()
+{
+	/*set up signal handler*/
+	struct sigaction act;
+	memset(&act,0,sizeof(struct sigaction));
+
+	struct sigaction act_child_process;
+	memset(&act_child_process,0,sizeof(struct sigaction));
+	act.sa_handler = &handler_ssl_process;
+	act_child_process.sa_handler = SIG_IGN;
+	act_child_process.sa_flags = SA_NOCLDWAIT;
+	
+	if(/*sigaction(SIGSEGV, &act, NULL) == -1 ||*/
+			sigaction(SIGINT,&act,NULL) == -1 || 
+			sigaction(SIGPIPE,&act,NULL) == -1 ||
+			sigaction(SIGTERM,&act,NULL) == -1 ||
+			sigaction(SIGCHLD,&act_child_process,NULL) == -1){
+		fprintf(stderr,"(%s): cannot handle the signal.\n",prog);
+		return -1;
+	}
+	return 0;
+}
+
+static void handler_ssl_process(int signo)
+{
+	switch(signo){
+	case SIGINT:
+	case SIGTERM:
+	case SIGPIPE:
+		stop_listening(ssl_sock);
+		SSL_CTX_free(ctx);
+		clean_connecion_data(cd,-1);
+		break;
+	default:
+
+	}
+	exit(0);
+
+}
+
+static void handler_main_process(int signo)
 {
 	switch(signo){
 	/*case SIGSEGV:*/ /* in production you might want this on*/
@@ -47,29 +88,18 @@ static void handler(int signo)
 	case SIGPIPE:
 		stop_monitor();	
 		stop_listening(hdl_sock);
-		pid_t p = getpid();
-		if(p == ssl_proc){			
-			if(db_proc != -1) 
-				kill(db_proc,SIGTERM);
-
-			if(ctx) SSL_CTX_free(ctx);
-			clean_connecion_data(cds,-1);
-		}
-		
-		if( p != db_proc && p != ssl_proc){
-			if(ssl_proc != -1) 
-				kill(ssl_proc,SIGTERM);
-		}
+		if(ssl_proc != -1) 
+			kill(ssl_proc,SIGTERM);
 
 		/*terminate all the child*/
 		if(signo == SIGINT)
 			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGINT");
-		else if(signo== SIGPIPE)
-			fprintf(stderr,"(%s):cleaning on interrupt, recived %s.\n",prog,"SIGPIPE");
-		else if(signo== SIGTERM)
-			fprintf(stderr,"(%s):cleaning on interrupt, recived %s.\n",prog,"SIGTERM");
+		else if(signo == SIGPIPE)
+			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGPIPE");
+		else if(signo == SIGTERM)
+			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGTERM");
 		else 
-			fprintf(stderr,"(%s):cleaning on interrupt, recived %s.\n",prog,"SIGSEGV");
+			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGSEGV");
 		break;
 	default:
 		break;
