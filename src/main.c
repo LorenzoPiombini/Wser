@@ -163,15 +163,10 @@ int main(int argc, char **argv)
 
 				if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
-#if USE_FORK
 				pid_t child = fork();
 				if(child == -1){
 
 				}
-#else
-
-				pid_t child = 0;
-#endif
 
 				if(child == 0){
 					/* send response */
@@ -182,7 +177,6 @@ int main(int argc, char **argv)
 						int w = 0;
 						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 						if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
-#if USE_FORK
 							uint8_t ws = 0;
 							while((w = write_cli_sock(cli_sock,&res) != -1)){
 								if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -198,22 +192,12 @@ int main(int argc, char **argv)
 							//clear_response(&res);
 							stop_listening(cli_sock);
 							exit(1);
-#else
-							continue;
-#endif
 						}
 
-#if USE_FORK
 						clear_request(&req);
 						clear_response(&res);
 						stop_listening(cli_sock);
 						exit(0);
-#else
-						remove_socket_from_monitor(cli_sock);
-						clear_request(&req);
-						clear_response(&res);
-						continue;
-#endif
 					}
 
 					struct Content cont;
@@ -228,7 +212,6 @@ int main(int argc, char **argv)
 							int w = 0;
 							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 							if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 								uint8_t ws = 0;
 								while((w = write_cli_sock(cli_sock,&res) != -1)){
 									if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -255,41 +238,19 @@ int main(int argc, char **argv)
 							clear_content(&cont);
 							stop_listening(cli_sock);
 							exit(1);
-#else
-							clear_request(&req);
-							clear_content(&cont);
-							remove_socket_from_monitor(cli_sock);
-							continue;
-#endif
-#if USE_FORK
-							stop_listening(cli_sock);
-							clear_request(&req);
-							clear_content(&cont);
-							if(secure) SSL_CTX_free(ctx);
-							exit(0);
-
-#else 
-							clear_request(&req);
-							clear_content(&cont);
-							remove_socket_from_monitor(cli_sock);
-							continue;
-#endif
 						}
 
 						/*send 200 response*/
 						if(generate_response(&res,OK,&cont,&req) == -1) {
 							/*TODO: server errror*/
 							clear_content(&cont);
-#if USE_FORK
 							exit(1);
-#endif
 						}
 
 						clear_content(&cont);
 						int w = 0;
 						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 						if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 							uint8_t ws = 0;
 							while((w = write_cli_sock(cli_sock,&res) != -1)){
 								if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -307,13 +268,6 @@ int main(int argc, char **argv)
 							clear_response(&res);
 							stop_listening(cli_sock);
 							exit(1);
-#else
-							clear_response(&res);
-							clear_request(&req);
-							remove_socket_from_monitor(cli_sock);
-							continue;
-#endif
-
 						}
 
 						/*TODO: can we delete this ??*/
@@ -324,14 +278,8 @@ int main(int argc, char **argv)
 
 						clear_request(&req);
 						clear_response(&res);
-#if USE_FORK 
-
 						stop_listening(cli_sock);
 						exit(0);
-#else
-						remove_socket_from_monitor(cli_sock);
-						break;
-#endif
 					case OPTIONS:
 					{
 						size_t s = strlen(req.origin);
@@ -345,7 +293,6 @@ bad_request:
 
 							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 							if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 								uint8_t ws = 0;
 								while((w = write_cli_sock(cli_sock,&res) != -1)){
 									if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -363,24 +310,13 @@ bad_request:
 								stop_listening(cli_sock);
 								clear_request(&req);
 								exit(1);
-#else
-								remove_socket_from_monitor(cli_sock);
-								clear_request(&req);
-								continue;
-#endif
 							}
 
 
 							clear_request(&req);
 							clear_response(&res);
-#if USE_FORK
 							stop_listening(cli_sock);
 							exit(0);
-#else 
-							remove_socket_from_monitor(cli_sock);
-							continue;
-#endif
-
 						}
 
 						/*send a response to the options request*/
@@ -390,7 +326,6 @@ bad_request:
 						int w = 0;
 						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 						if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 								uint8_t ws = 0;
 								while((w = write_cli_sock(cli_sock,&res) != -1)){
 									if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -404,21 +339,12 @@ bad_request:
 									clear_response(&res);
 									exit(0);
 								}
-#else
-								remove_socket_from_monitor(cli_sock);
-								continue;
-#endif
 						}
 
-							clear_response(&res);
+						clear_response(&res);
 
-#if USE_FORK
-							stop_listening(cli_sock);
-							exit(0);
-#else
-							remove_socket_from_monitor(cli_sock);
-							continue;
-#endif
+						stop_listening(cli_sock);
+						exit(0);
 					}
 					case DELETE:
 					case POST:
@@ -431,7 +357,6 @@ bad_request:
 							int w = 0;
 							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 							if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 								uint8_t ws = 0;
 								while((w = write_cli_sock(cli_sock,&res) != -1)){
 									if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -448,22 +373,14 @@ bad_request:
 								stop_listening(cli_sock);
 								clear_request(&req);
 								exit(1);
-#else
-								remove_socket_from_monitor(cli_sock);
-								clear_request(&req);
-								continue;
-#endif
 							}
 
 							clear_response(&res);
 
-#if USE_FORK
 							stop_listening(cli_sock);
 							exit(0);
-#else 
 							remove_socket_from_monitor(cli_sock);
 							break;
-#endif
 					}/*end default case*/
 					}/*end switch statement*/
 				}
@@ -480,25 +397,18 @@ bad_request:
 				if(events[i].events == EPOLLIN) {
 						if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
 					if(r == EAGAIN || r == EWOULDBLOCK) continue;
-#if USE_FORK 
+
 					pid_t child = fork();
 					if(child == -1){
 						continue;
 					}
-#else
-					pid_t child = 0;
 
-#endif
 					if(child == 0){
 						printf("in the child!\n");
 						printf("%s\n",req.req);
 						if(r == BAD_REQ) {
 							/*send a bed request response*/
-#if USE_FORK
 							exit(1);
-#else
-							continue;
-#endif
 						}
 
 						struct Content cont;
@@ -517,7 +427,6 @@ bad_request:
 									int w = 0;
 									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 									if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 										uint8_t ws = 0;
 										while((w = write_cli_sock(cli_sock,&res) != -1)){
 											if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -530,20 +439,12 @@ bad_request:
 										if(ws) exit(0);
 
 										exit(1);
-#else
-										clear_request(&req);
-										continue;	
-#endif
 									}
 								}
 								/* send response */
 								if(generate_response(&res,OK,&cont,&req) == -1){
 									/*TODO:server error 500*/
-#if USE_FORK 
 									exit(0);
-#else 
-									continue;
-#endif
 								}
 
 								clear_content(&cont);
@@ -552,7 +453,6 @@ bad_request:
 								int w = 0;
 								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 								if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 									uint8_t ws = 0;
 									while((w = write_cli_sock(cli_sock,&res) != -1)){
 										if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -570,9 +470,6 @@ bad_request:
 									stop_listening(events[i].data.fd);
 									clear_response(&res);		
 									exit(1);
-#else 
-									continue;
-#endif
 								}
 								/*TODO: can we delete this??*/
 								if(req.d_req)
@@ -583,20 +480,11 @@ bad_request:
 
 								clear_request(&req);
 								clear_response(&res);		
-#if USE_FORK
 								stop_listening(events[i].data.fd);
 								exit(0);
-#else
-								remove_socket_from_monitor(events[i].data.fd);
-								continue;
-#endif
 							default:
 								/* TODO:send a bad request response*/
-#if USE_FORK
 								exit(0);
-#else
-								continue;
-#endif
 						}
 					}
 					/*parent*/
@@ -606,7 +494,6 @@ bad_request:
 					int w = 0;
 					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 					if(w == EAGAIN || w == EWOULDBLOCK){
-#if USE_FORK
 						uint8_t ws = 0;
 						while((w = write_cli_sock(cli_sock,&res) != -1)){
 							if(w == EAGAIN || w == EWOULDBLOCK) continue;
@@ -624,19 +511,11 @@ bad_request:
 						stop_listening(events[i].data.fd);
 						clear_request(&req);
 						exit(1);
-#else
-						clear_request(&req);
-						continue;
-#endif
 					}
 
 					clear_response(&res);
-#if USE_FORK
 					stop_listening(events[i].data.fd);
 					exit(0);
-#else
-					break;
-#endif
 				}
 			}
 		}
