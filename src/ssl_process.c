@@ -2,6 +2,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
@@ -14,7 +15,14 @@
 #include "response.h"
 #include "monitor.h"
 
-#define TIME_OUT 60*20*1000 /*20 minutes in milliseconds*/
+struct p_info{
+	pid_t p;
+	time_t t;
+};
+
+struct p_info proc_list[256] = {0};
+
+#define TIME_OUT 60*5*1000 /*5 minutes in milliseconds*/
 static char prog[] = "ssl process";
 static int process_request(struct Request *req, int cli_sock);
 static int handle_ssl_steps(struct Connection_data *cd, 
@@ -228,11 +236,51 @@ teardown:
 			/*PARENT*/
 			stop_listening(cli_sock);
 			stop_listening(sock);
+			/*wait on the children*/
 			continue;
 		}else{
 			/*PARENT*/
 			stop_listening(cli_sock);
 			stop_listening(sock);
+
+			int i;
+			for(i = 0; i < 252;i++){
+				if(proc_list[i].p == 0){
+					proc_list[i].p = child;
+					proc_list[i].t = time(NULL);
+					break;
+				}
+			}
+						
+			/*wait on the children*/
+			int wstatus;
+			errno = 0;
+			for(i = 0; i < 256;i++){
+				if(proc_list[i].p == 0) continue;
+				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
+
+				if(term_child == 0){
+					continue;
+				}
+
+				if(term_child == -1 && errno == ECHILD){
+					proc_list[i].p = 0;
+					proc_list[i].t = 0;
+					continue;
+				}
+
+				if(WIFEXITED(wstatus)){
+					proc_list[i].p = 0;
+					proc_list[i].t = 0;
+					continue;
+				}
+
+				if(time(NULL) - proc_list[i].t  > (time_t) TIME_OUT){
+					kill(proc_list[i].t,SIGTERM);
+					proc_list[i].p = 0;
+					proc_list[i].t = 0;
+				}
+			}
 			continue;
 		}
 		}
