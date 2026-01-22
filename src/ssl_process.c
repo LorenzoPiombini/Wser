@@ -20,7 +20,7 @@ struct p_info{
 	time_t t;
 };
 
-struct p_info proc_list[256] = {0};
+struct p_info proc_list[100] = {0};
 
 #define TIME_OUT 60*5*1000 /*5 minutes in milliseconds*/
 #define EIGHTkib_limit 8192
@@ -246,7 +246,7 @@ teardown:
 			stop_listening(sock);
 
 			int i;
-			for(i = 0; i < 252;i++){
+			for(i = 0; i < 100;i++){
 				if(proc_list[i].p == 0){
 					proc_list[i].p = child;
 					proc_list[i].t = time(NULL);
@@ -257,21 +257,23 @@ teardown:
 			/*wait on the children*/
 			int wstatus;
 			errno = 0;
-			for(i = 0; i < 256;i++){
+			for(i = 0; i < 100;i++){
 				if(proc_list[i].p == 0) continue;
 				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
 
 				if(term_child == -1 && errno == ECHILD){
 					proc_list[i].p = 0;
 					proc_list[i].t = 0;
+					continue;
 				}
 
 				if(WIFEXITED(wstatus)){
 					proc_list[i].p = 0;
 					proc_list[i].t = 0;
+					continue;
 				}
 
-				if((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT){
+				if(term_child == 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
 					kill(proc_list[i].t,SIGTERM);
 					proc_list[i].p = 0;
 					proc_list[i].t = 0;
