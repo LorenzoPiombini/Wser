@@ -23,6 +23,8 @@ struct p_info{
 struct p_info proc_list[256] = {0};
 
 #define TIME_OUT 60*5*1000 /*5 minutes in milliseconds*/
+#define EIGHTkib_limit 8192
+
 static char prog[] = "ssl process";
 static int process_request(struct Request *req, int cli_sock);
 static int handle_ssl_steps(struct Connection_data *cd, 
@@ -259,23 +261,17 @@ teardown:
 				if(proc_list[i].p == 0) continue;
 				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
 
-				if(term_child == 0){
-					continue;
-				}
-
 				if(term_child == -1 && errno == ECHILD){
 					proc_list[i].p = 0;
 					proc_list[i].t = 0;
-					continue;
 				}
 
 				if(WIFEXITED(wstatus)){
 					proc_list[i].p = 0;
 					proc_list[i].t = 0;
-					continue;
 				}
 
-				if(time(NULL) - proc_list[i].t  > (time_t) TIME_OUT){
+				if((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT){
 					kill(proc_list[i].t,SIGTERM);
 					proc_list[i].p = 0;
 					proc_list[i].t = 0;
@@ -348,7 +344,11 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 		size_t bread = 0;
 		int result = 0;
-		if((result = SSL_peek_ex(*ssl,req->req,BASE,&bread)) == 0) {
+		ssize_t byte_to_read = BASE;
+		char buf[EIGHTkib_limit] = {0};
+		char *pbuf = &buf[0];
+
+		while((result = SSL_peek_ex(*ssl,pbuf,byte_to_read,&bread)) == 0 || bread == BASE) {
 			int err = SSL_get_error(*ssl,result);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 				int i;
@@ -363,11 +363,21 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						break;
 					}
 				}
+
 				if(i >= MAX_CON_DAT_ARR){
 					fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
 					return -1;
 				}
+
 				return SSL_READ_E; 
+			}else if(err == SSL_ERROR_NONE){
+				if(byte_to_read < EIGHTkib_limit){
+					memset(buf,0,byte_to_read);
+					byte_to_read += 1024;
+					continue;
+				}
+
+				/*here we need to allocate memory*/		
 			}else {
 				/*SSL_free(*ssl);*/
 				return -1;
@@ -385,34 +395,18 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				break;
 			}
 		}
-		if(bread == BASE){
-			/*
-			 * TODO: read again the socket,
-			 * req is bigger than BASE = (1024 bytes)*/
-			return -1;
+		/* copy the buffer to the request struct*/
+		req->size = bread;
+		if(bread >= BASE){
+			/*allocate*/
+			if(set_up_request(bread,req) == -1) return -1;
+		}else{
+			strncpy(req->req,pbuf,bread);
 		}
 
-		req->size = bread;
 		if(handle_request(req) == BAD_REQ){
 			if(req->method == -1) return BAD_REQ;
 			if(req->size < (ssize_t)BASE) return BAD_REQ;
-
-			if(req->size == (ssize_t)BASE){
-				if(set_up_request(bread,req) == -1) return -1;
-
-				ssize_t move = req->size;
-#if 0
-				if((bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
-					if(errno == EAGAIN || errno == EWOULDBLOCK) {
-						int e = errno;
-						/*TODO: add fd to poll*/
-						return e;
-					}
-					fprintf(stderr,"(%s): cannot read data from socket",prog);
-					return -1;
-				}
-#endif
-			}
 		}
 
 		return 0;
