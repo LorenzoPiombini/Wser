@@ -185,11 +185,11 @@ int main(int argc, char **argv)
 								break;
 							}
 							if(ws){
-								//clear_response(&res);
+								clear_response(&res);
 								stop_listening(cli_sock);
 								exit(0);
 							}
-							//clear_response(&res);
+							clear_response(&res);
 							stop_listening(cli_sock);
 							exit(1);
 						}
@@ -444,6 +444,7 @@ bad_request:
 								/* send response */
 								if(generate_response(&res,OK,&cont,&req) == -1){
 									/*TODO:server error 500*/
+									clear_response(&res);		
 									exit(0);
 								}
 
@@ -451,7 +452,11 @@ bad_request:
 								printf("2nd branch: response header is\n%s\n",res.header_str);
 								printf("writing to client.\n");
 								int w = 0;
-								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1){
+										stop_listening(events[i].data.fd);
+										clear_response(&res);		
+										exit(0);
+								}
 								if(w == EAGAIN || w == EWOULDBLOCK){
 									uint8_t ws = 0;
 									while((w = write_cli_sock(cli_sock,&res) != -1)){
@@ -492,10 +497,10 @@ bad_request:
 					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
-					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
 					if(w == EAGAIN || w == EWOULDBLOCK){
 						uint8_t ws = 0;
-						while((w = write_cli_sock(cli_sock,&res) != -1)){
+						while((w = write_cli_sock(events[i].data.fd,&res) != -1)){
 							if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
 								ws = 1;
