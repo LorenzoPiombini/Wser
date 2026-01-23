@@ -55,7 +55,7 @@ int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd);
 int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req);
-int get(char *URL);
+int perform_http_request(char *URL, int method);
 void stop_listening(int sock_fd);
 
 #endif

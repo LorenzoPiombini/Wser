@@ -17,6 +17,7 @@
 #include <assert.h>
 #include "network.h"       
 #include "response.h"       
+#include "request.h"       
 #include "monitor.h"       
 
 char cache_id[] = "wser";
@@ -25,6 +26,10 @@ SSL_CTX *ctx = NULL;
 #define USE_HTTPS 0
 static char prog[] = "wser";
 static int parse_URL(char *URL, struct Url *url);
+static int SSL_client_setup(SSL_CTX **ctx);
+static int handle_client_IO(SSL *ssl, int ret);
+static int wait_for_activity(SSL *ssl, int w_r);
+static int get_request(char *req,struct Url url);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
@@ -190,7 +195,6 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		if(cd[i].fd == cli_sock) break;
 	}
 
-	/*if(i >= MAX_CON_DAT_ARR) return -1;*/
 	assert(i < MAX_CON_DAT_ARR);
 
 	size_t l = strlen(res->header_str);
@@ -270,8 +274,18 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		cd[i].fd = -1;
 		free(buff);
 	}
+	/*Write was succesful we can shutdown the TLS section*/
+		
+	int r = 0;
+	while((r = SSL_shutdown(cd[i].ssl) != 1)){
+		if(handle_client_IO(cd[i].ssl,r) == 1)
+			continue;
+
+		return -1;
+	}
 	return 0;
 }
+
 int write_cli_sock(int cli_sock, struct Response *res)
 {
 
@@ -578,12 +592,50 @@ void stop_listening(int sock_fd)
 	close(sock_fd);
 }
 
-int get(char *URL)
+static int get_request(char *req,struct Url url)
+{
+	if(snprintf(req,1024,"%s %s %s\r\n"\
+				"Host: %s\r\n"\
+				"User-Agent: %s\r\n"\
+				"Accept: %s\r\n"\
+				"Priority: %s\r\n"\
+				"Connection: %s\r\n\r\n","GET", url.resource, "HTTP/1.1",
+				url.host,
+				prog,
+				"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"u=0, i",
+				"keep-alive") == -1){
+
+		fprintf(stderr,"(%s): cannot form GET request.",prog);
+		return -1;
+	}
+
+	return 0;
+}
+
+int perform_http_request(char *URL, int method)
 {
 	/*process the url*/
 	struct Url url = {0};
 	if(parse_URL(URL,&url) == -1) return -1;	
 
+	int secure = 0;
+	if(strncmp(url.protocol,"https",5) == 0 )
+		secure = 1;
+
+	SSL *ssl = NULL;
+	if(secure){
+		if(SSL_client_setup(&ctx) != 0){
+			if(ctx)
+				SSL_CTX_free(ctx);
+
+			return -1;
+		}
+		if((ssl = SSL_new(ctx)) == NULL){
+			SSL_CTX_free(ctx);
+			return -1;
+		}
+	}
 
 	/*get addr info*/
 	int rsl = 0;
@@ -610,43 +662,135 @@ int get(char *URL)
 
 	freeaddrinfo(result);
 
+	if(fcntl(sock_fd,F_SETFD,O_NONBLOCK) == -1){
+		if(ssl) 
+			SSL_free(ssl);
+		if(ctx)
+			SSL_CTX_free(ctx);
+		close(sock_fd);
+		return -1;
+	}
+
 	if(!rp) {
 		fprintf(stderr,"(%s): could not connect to '%s'.\n",prog,URL);
+		if(ssl) 
+			SSL_free(ssl);
+		if(ctx)
+			SSL_CTX_free(ctx);
 		return -1;
 	}
 
-	/*send GET request*/
+	if(ssl){
+		if(!SSL_set_fd(ssl,sock_fd)){
+			SSL_free(ssl);
+			SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+
+		if(!SSL_set_tlsext_host_name(ssl,url.host)){
+			SSL_free(ssl);
+			SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+
+		if(!SSL_set1_host(ssl,url.host)){
+			SSL_free(ssl);
+			SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+
+		int ret = 0;
+		while((ret = SSL_connect(ssl)) != 1){
+			int r = handle_client_IO(ssl,ret); 
+			if(r == 1)
+				continue;
+			else if( r == 0)
+				break;
+
+			SSL_free(ssl);
+			SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+	}
+
 	char req[1024] = {0};
-	if(snprintf(req,1024,"%s %s %s\r\n"\
-				"Host: %s\r\n"\
-				"User-Agent: %s\r\n"\
-				"Accept: %s\r\n"\
-				"Priority: %s\r\n"\
-				"Connection: %s\r\n\r\n","GET", url.resource, "HTTP/1.1",
-				url.host,
-				prog,
-				"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"u=0, i",
-				"keep-alive") == -1){
+	switch(method){
+	case GET:
+		if(get_request(req,url) == 1){
+			if(ssl)
+				SSL_free(ssl);
+			if(ctx)
+				SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+		break;
+	default:
 
-		fprintf(stderr,"(%s): cannot form GET request.",prog);
-		close(sock_fd);
-		return -1;
 	}
 
-	if(write(sock_fd,req,1024) == -1){
-		fprintf(stderr,"(%s): cannot send request to '%s'.\n",prog,URL);
-		close(sock_fd);
-		return -1;
-	}
 
-	ssize_t bread = 0;
+	size_t bread = 0;
 	char buff[MAX_BUF_SIZE] = {0};
-	if((bread = read(sock_fd,buff,MAX_BUF_SIZE)) == -1){
-		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,URL);
-		close(sock_fd);
-		return -1;
+	if(ssl){
+		size_t bwritten = 0;
+		while(!SSL_write_ex(ssl,req,1024,&bwritten)){
+			if(handle_client_IO(ssl,1) == 1)
+				continue;
+
+			SSL_free(ssl);
+			SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+
+		while(!SSL_read_ex(ssl,buff,sizeof(buff),&bread)){
+			int r = 0;
+			if((r=handle_client_IO(ssl,1)) == 1)
+				continue;
+			else if( r == 0)
+				break;
+
+			SSL_free(ssl);
+			SSL_CTX_free(ctx);
+			close(sock_fd);
+			return -1;
+		}
+		
+		fwrite(buff,1,bread,stdout);
+		printf("\n");
+		int ret = 0;
+		while((ret = SSL_shutdown(ssl)) != 1){
+			if(ret < 0 && handle_client_IO(ssl,ret) == 1)
+				continue;
+
+			SSL_CTX_free(ctx);
+			SSL_free(ssl);
+			close(sock_fd);
+			return -1;
+		}
+
+		SSL_CTX_free(ctx);
+		SSL_free(ssl);
+	} else{
+		if(write(sock_fd,req,1024) == -1){
+			fprintf(stderr,"(%s): cannot send request to '%s'.\n",prog,URL);
+			close(sock_fd);
+			return -1;
+		}
+		if((bread = read(sock_fd,buff,MAX_BUF_SIZE)) == -1){
+			fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,URL);
+			close(sock_fd);
+			return -1;
+		}
 	}
+
+	close(sock_fd);
+	return 0;
 
 	int index = find_headers_end(buff, (size_t)bread);
 
@@ -682,4 +826,56 @@ static int parse_URL(char *URL, struct Url *url)
 	strncpy(url->host,&URL[start_host],end_host - start_host);
 	strncpy(url->resource,++d_s,strlen(&URL[end_host+1]));
 	return 0;
+}
+
+static int SSL_client_setup(SSL_CTX **ctx)
+{
+
+	*ctx = SSL_CTX_new(TLS_client_method());
+	if(!(*ctx))
+		return -1;
+
+	SSL_CTX_set_verify(*ctx,SSL_VERIFY_PEER,NULL);
+
+	if(!SSL_CTX_set_default_verify_paths(*ctx))
+		return -1;
+
+	if(!SSL_CTX_set_min_proto_version(*ctx,TLS1_2_VERSION))
+		return -1;
+	return 0;
+}
+
+static int handle_client_IO(SSL *ssl, int ret)
+{
+	int err = SSL_get_error(ssl,ret);
+	ERR_print_errors_fp(stdout);
+	switch(err){
+	case SSL_ERROR_ZERO_RETURN:
+		return 0;
+	case SSL_ERROR_WANT_READ:
+		if(wait_for_activity(ssl,1) == -1)
+			return -1;
+		return 1;
+	case SSL_ERROR_WANT_WRITE:
+		if(wait_for_activity(ssl,1) == -1)
+			return -1;
+		return 1;
+	case SSL_ERROR_SSL:
+	case SSL_ERROR_SYSCALL:
+		return -1;
+	default:
+		return -1;
+	}
+	return -1;
+}
+
+static int wait_for_activity(SSL *ssl, int w_r)
+{
+	int fd = SSL_get_fd(ssl);
+	if(start_monitor(fd) == -1)
+		return -1;
+
+	modify_monitor_event(fd,w_r ? EPOLLOUT : EPOLLIN);
+	int n = monitor_events();
+	return n;
 }

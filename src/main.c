@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <signal.h>
+#include <signal.h> 
 #include <unistd.h> 
 #include <openssl/ssl.h> 
 #include <sys/socket.h>
@@ -536,11 +536,11 @@ client:
 	int option = 0;
 	while((option = getopt(argc,argv,"g:")) != -1){
 		switch(option){
-			case 'g':
-				get(optarg);
-				break;
-			default:
-				break;
+		case 'g':
+			perform_http_request(optarg,(int)GET);
+			break;
+		default:
+			break;
 		}
 	}
 
