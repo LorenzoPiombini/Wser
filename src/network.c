@@ -278,8 +278,11 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		
 	int r = 0;
 	while((r = SSL_shutdown(cd[i].ssl) != 1)){
-		if(handle_client_IO(cd[i].ssl,r) == 1)
+		int rr = 0;
+		if((r = handle_client_IO(cd[i].ssl,r)) == 1)
 			continue;
+		else if(r == 2 || r == 0)
+			break;
 
 		return -1;
 	}
@@ -733,7 +736,6 @@ int perform_http_request(char *URL, int method)
 
 	}
 
-
 	size_t bread = 0;
 	char buff[MAX_BUF_SIZE] = {0};
 	if(ssl){
@@ -748,9 +750,10 @@ int perform_http_request(char *URL, int method)
 			return -1;
 		}
 
-		while(!SSL_read_ex(ssl,buff,sizeof(buff),&bread)){
+		printf("right before reading\n");
+		while(SSL_read_ex(ssl,buff,sizeof(buff),&bread)<= 0){
 			int r = 0;
-			if((r=handle_client_IO(ssl,1)) == 1)
+			if((r=handle_client_IO(ssl,0)) == 1)
 				continue;
 			else if( r == 0)
 				break;
@@ -776,7 +779,7 @@ int perform_http_request(char *URL, int method)
 
 		SSL_CTX_free(ctx);
 		SSL_free(ssl);
-	} else{
+	}else{
 		if(write(sock_fd,req,1024) == -1){
 			fprintf(stderr,"(%s): cannot send request to '%s'.\n",prog,URL);
 			close(sock_fd);
@@ -850,6 +853,8 @@ static int handle_client_IO(SSL *ssl, int ret)
 	int err = SSL_get_error(ssl,ret);
 	ERR_print_errors_fp(stdout);
 	switch(err){
+	case SSL_ERROR_NONE:
+		return 2;
 	case SSL_ERROR_ZERO_RETURN:
 		return 0;
 	case SSL_ERROR_WANT_READ:
