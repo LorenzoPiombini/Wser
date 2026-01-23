@@ -181,9 +181,8 @@ int SSL_work_process(int data_sock)
 				}
 
 loop:
-				int nfds =-1,i, max_handshake_try = 10;
+				int nfds =-1,i;
 				for(;;){
-					if(max_handshake_try <= 0) goto teardown;
 					if((nfds = monitor_events()) == -1) goto teardown;
 					if(nfds == EINTR){
 						continue; /*change with goto teardwn in prod*/
@@ -199,9 +198,6 @@ loop:
 						case SSL_WRITE_E:
 						case HANDSHAKE:
 						{		
-							if(r == HANDSHAKE)
-								max_handshake_try--;
-
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 								if(process_request(&req,events[i].data.fd) == 1){
@@ -213,6 +209,7 @@ loop:
 							}
 							break;
 						}
+						case 2:
 						case 0:
 						{
 							/*process request*/
