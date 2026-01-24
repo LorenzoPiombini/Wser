@@ -167,8 +167,10 @@ int SSL_work_process(int data_sock)
 				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 
 				if(r == -1){
-					clear_request(&req);
-					goto teardown;
+					if(handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx) == CLEAN_TEARDOWN){
+						clear_request(&req);
+						goto teardown;
+					}
 				}
 			
 				if(r == 0 || r == 2){
@@ -191,7 +193,10 @@ loop:
 					for(i = 0; i < nfds; i++){
 						int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
-						if(r == -1)goto teardown;
+						if(r == -1){
+							/*shutdown*/
+							goto teardown;
+						}
 
 						switch(r){
 						case SSL_READ_E:
@@ -219,6 +224,10 @@ loop:
 							}
 							goto teardown;
 						}
+						case CLEAN_TEARDOWN:
+							goto teardown;
+						case SSL_SET_E:
+						case SSL_HD_F:
 						default:
 						remove_socket_from_monitor(cli_sock);
 						stop_monitor();
@@ -259,17 +268,17 @@ teardown:
 			int wstatus;
 			errno = 0;
 			for(i = 0; i < 100;i++){
-				if(proc_list[i].p == 0) continue;
+				if(proc_list[i].p == 0 || proc_list[i].p == -1) continue;
 				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
 
 				if(term_child == -1 && errno == ECHILD){
-					proc_list[i].p = 0;
+					proc_list[i].p = -1;
 					proc_list[i].t = 0;
 					continue;
 				}
 
 				if(WIFEXITED(wstatus)){
-					proc_list[i].p = 0;
+					proc_list[i].p = -1;
 					proc_list[i].t = 0;
 					continue;
 				}
@@ -340,7 +349,21 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			}else {
 				fprintf(stderr,"the error happens when trying handshake first time\n");
 				ERR_print_errors_fp(stderr);
-				/*SSL_free(*ssl);*/
+				int i;
+				for(i = 0; i < MAX_CON_DAT_ARR;i++){
+					if(cd[i].fd == 0 || cd[i].fd == -1){
+						cd[i].fd = cli_sock;
+						cd[i].ssl = *ssl;
+						cd[i].retry_handshake = NULL;
+						cd[i].retry_read = NULL;
+						cd[i].retry_write = NULL;
+						cd[i].close_notify = SSL_shutdown;
+						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+							/*TODO*/
+						}
+						break;
+					}
+				}
 				return -1;
 			}
 		}
@@ -359,7 +382,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					if(cd[i].fd == 0 || cd[i].fd == -1){
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
-						cd[i].retry_read = SSL_read_ex;
+						cd[i].retry_read = SSL_peek_ex;
 						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 							/*TODO*/
 						}
@@ -382,8 +405,22 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 				/*here we need to allocate memory*/		
 			}else {
-				/*SSL_free(*ssl);*/
-				return -1;
+				int i;
+				for(i = 0; i < MAX_CON_DAT_ARR;i++){
+					if(cd[i].fd == 0 || cd[i].fd == -1){
+						cd[i].fd = cli_sock;
+						cd[i].ssl = *ssl;
+						cd[i].retry_handshake = NULL;
+						cd[i].retry_read = NULL;
+						cd[i].retry_write = NULL;
+						cd[i].close_notify = SSL_shutdown;
+						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+							/*TODO*/
+						}
+						break;
+					}
+				}
+				return SSL_CLOSE;
 			}
 		}
 
@@ -391,7 +428,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			if(cd[i].fd == 0 || cd[i].fd == -1){
 				cd[i].fd = cli_sock;
 				cd[i].ssl = *ssl;
-				cd[i].retry_read = SSL_read_ex;
+				cd[i].retry_read = SSL_peek_ex;
 				if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 					/*TODO*/
 				}
@@ -422,19 +459,27 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){
 					return HANDSHAKE;	
 				}else{
-					return -1;
-					/*
 					fprintf(stderr,"the error happens when retrying handshake\n");
 					ERR_print_errors_fp(stderr);
-					SSL_free(cd[i].ssl);
-					cd[i].fd = -1;
-					cd[i].ssl = NULL;
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
-					return -1;
-					*/
+					int i;
+					for(i = 0; i < MAX_CON_DAT_ARR;i++){
+						if(cd[i].fd == 0 || cd[i].fd == -1){
+							cd[i].fd = cli_sock;
+							cd[i].ssl = *ssl;
+							cd[i].retry_handshake = NULL;
+							cd[i].retry_read = NULL;
+							cd[i].retry_write = NULL;
+							cd[i].close_notify = SSL_shutdown;
+							if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+								/*TODO*/
+							}
+							break;
+						}
+					}
+					return SSL_CLOSE;
 				}
 			}
+
 			cd[i].retry_handshake = NULL;
 			int result;
 			size_t bread = 0;
@@ -448,12 +493,23 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					ERR_print_errors_fp(stderr);
 					return -1;
 				}else{
-					return -1;
-					/*
 					fprintf(stderr,"the error happens when reading SSL after handshake\n");
 					ERR_print_errors_fp(stderr);
-					return -1;
-					*/
+					int i;
+					for(i = 0; i < MAX_CON_DAT_ARR;i++){
+						if(cd[i].fd == 0 || cd[i].fd == -1){
+							cd[i].fd = cli_sock;
+							cd[i].ssl = *ssl;
+							cd[i].retry_handshake = NULL;
+							cd[i].retry_read = NULL;
+							cd[i].retry_write = NULL;
+							cd[i].close_notify = SSL_shutdown;
+							if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+								/*TODO*/
+							}
+							break;
+						}
+					}
 				}
 			}
 
@@ -542,12 +598,32 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					return SSL_WRITE_E;
 				}else{
 
-					return -1;
 					ERR_print_errors_fp(stderr);
-					return -1;
+					int i;
+					for(i = 0; i < MAX_CON_DAT_ARR;i++){
+						if(cd[i].fd == 0 || cd[i].fd == -1){
+							cd[i].fd = cli_sock;
+							cd[i].ssl = *ssl;
+							cd[i].retry_handshake = NULL;
+							cd[i].retry_read = NULL;
+							cd[i].retry_write = NULL;
+							cd[i].close_notify = SSL_shutdown;
+							if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+								/*TODO*/
+							}
+							break;
+						}
+					}
+					return SSL_CLOSE;
 				}
 			}
 			return WRITE_OK;
+		}
+		if(cd[i].close_notify){
+			if(SSL_shutdown(cd[i].ssl) != 1)
+				return SSL_CLOSE;
+			else 
+				return CLEAN_TEARDOWN;
 		}
 	}
 	return 0;

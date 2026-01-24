@@ -46,17 +46,19 @@ int handle_sig_ssl_process()
 	struct sigaction act;
 	memset(&act,0,sizeof(struct sigaction));
 
+	/*
 	struct sigaction act_child_process;
 	memset(&act_child_process,0,sizeof(struct sigaction));
 	act.sa_handler = &handler_ssl_process;
 	act_child_process.sa_handler = SIG_IGN;
 	act_child_process.sa_flags = SA_NOCLDWAIT;
+	*/
 	
 	if(/*sigaction(SIGSEGV, &act, NULL) == -1 ||*/
 			sigaction(SIGINT,&act,NULL) == -1 || 
 			sigaction(SIGPIPE,&act,NULL) == -1 ||
-			sigaction(SIGTERM,&act,NULL) == -1 ||
-			sigaction(SIGCHLD,&act_child_process,NULL) == -1){
+			sigaction(SIGTERM,&act,NULL) == -1 /*|| 
+			sigaction(SIGCHLD,&act_child_process,NULL) == -1*/){
 		fprintf(stderr,"(%s): cannot handle the signal.\n",prog);
 		return -1;
 	}
@@ -70,6 +72,7 @@ static void handler_ssl_process(int signo)
 	case SIGTERM:
 	case SIGPIPE:
 		stop_listening(ssl_sock);
+		/*close the ssl handle as well*/
 		SSL_CTX_free(ctx);
 		clean_connecion_data(cds,-1);
 		break;

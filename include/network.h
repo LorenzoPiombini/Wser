@@ -13,6 +13,8 @@
 #define SSL_WRITE_E 22
 #define NO_CON_DATA 23
 #define WRITE_OK 24
+#define SSL_CLOSE 25
+#define CLEAN_TEARDOWN 26
 #define INT_PROC_SOCK_SSL "/tmp/TLS_SSL_operation.socket"
 
 #if OWN_DB
@@ -38,6 +40,7 @@ struct Connection_data{
     int (*retry_read)(SSL *,void *, size_t, size_t *);
 	int (*retry_handshake)(SSL *);
 	int (*retry_write)(SSL *,const void *,size_t,size_t *);
+	int (*close_notify)(SSL *);
 	struct Response res;
 	char *buf;
 };
