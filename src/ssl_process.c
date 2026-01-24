@@ -271,12 +271,6 @@ teardown:
 				if(proc_list[i].p == 0 || proc_list[i].p == -1) continue;
 				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
 
-				if(term_child == -1 && errno == ECHILD){
-					proc_list[i].p = -1;
-					proc_list[i].t = 0;
-					continue;
-				}
-
 				if(WIFEXITED(wstatus)){
 					proc_list[i].p = -1;
 					proc_list[i].t = 0;
@@ -285,7 +279,7 @@ teardown:
 
 				if(term_child == 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
 					kill(proc_list[i].t,SIGTERM);
-					proc_list[i].p = 0;
+					proc_list[i].p = -1;
 					proc_list[i].t = 0;
 				}
 			}

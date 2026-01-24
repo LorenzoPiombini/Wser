@@ -70,7 +70,6 @@ static void handler_ssl_process(int signo)
 	case SIGTERM:
 	case SIGPIPE:
 		stop_listening(ssl_sock);
-		/*close the ssl handle as well*/
 		SSL_CTX_free(ctx);
 		clean_connecion_data(cds,-1);
 		break;
