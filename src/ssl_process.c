@@ -22,7 +22,7 @@ struct p_info{
 
 struct p_info proc_list[100] = {0};
 
-#define TIME_OUT 60*5*1000 /*5 minutes in milliseconds*/
+#define TIME_OUT 300 /*5 minutes*/
 #define EIGHTkib_limit 8192
 
 static char prog[] = "ssl process";
@@ -154,6 +154,8 @@ int SSL_work_process(int data_sock)
 
 			pid_t child = fork();
 			if(child == 0){
+				/*clear ssl que error*/
+				ERR_clear_error(); 
 				/*free resources that the child does not need*/
 				stop_listening(sock);
 				stop_listening(data_sock);
@@ -257,7 +259,7 @@ teardown:
 
 			int i;
 			for(i = 0; i < 100;i++){
-				if(proc_list[i].p == 0 || proc_list[i].p != -1){
+				if(proc_list[i].p == 0 || proc_list[i].p == -1){
 					proc_list[i].p = child;
 					proc_list[i].t = time(NULL);
 					break;
@@ -271,16 +273,27 @@ teardown:
 				if(proc_list[i].p == 0 || proc_list[i].p == -1) continue;
 				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
 
-				if(WIFEXITED(wstatus)){
-					proc_list[i].p = -1;
-					proc_list[i].t = 0;
-					continue;
+				if(term_child > 0){
+					if(WIFEXITED(wstatus)){
+						proc_list[i].p = -1;
+						proc_list[i].t = 0;
+						continue;
+					}
 				}
 
-				if(proc_list[i].t != 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
-					kill(proc_list[i].t,SIGTERM);
-					proc_list[i].p = -1;
-					proc_list[i].t = 0;
+				if(term_child == 0){
+					if(proc_list[i].t > 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
+						kill(proc_list[i].p,SIGKILL);
+						proc_list[i].p = -1;
+						proc_list[i].t = 0;
+						continue;
+					}
+				}
+
+				if(term_child == -1 && errno = ECHILD){
+						proc_list[i].p = -1;
+						proc_list[i].t = 0;
+						continue;
 				}
 			}
 			continue;
