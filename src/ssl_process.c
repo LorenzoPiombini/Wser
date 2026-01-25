@@ -290,7 +290,7 @@ teardown:
 					}
 				}
 
-				if(term_child == -1 && errno = ECHILD){
+				if(term_child == -1 && errno == ECHILD){
 						proc_list[i].p = -1;
 						proc_list[i].t = 0;
 						continue;
