@@ -257,7 +257,7 @@ teardown:
 
 			int i;
 			for(i = 0; i < 100;i++){
-				if(proc_list[i].p == 0){
+				if(proc_list[i].p == 0 || proc_list[i].p != -1){
 					proc_list[i].p = child;
 					proc_list[i].t = time(NULL);
 					break;
@@ -277,7 +277,7 @@ teardown:
 					continue;
 				}
 
-				if(term_child == 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
+				if(proc_list[i].t != 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
 					kill(proc_list[i].t,SIGTERM);
 					proc_list[i].p = -1;
 					proc_list[i].t = 0;
