@@ -18,6 +18,7 @@
 struct p_info{
 	pid_t p;
 	time_t t;
+	int exited;
 };
 
 struct p_info proc_list[100] = {0};
@@ -267,12 +268,13 @@ teardown:
 			}
 						
 			/*wait on the children*/
-			int wstatus;
 			errno = 0;
 			for(i = 0; i < 100;i++){
+				int wstatus;
 				if(proc_list[i].p == 0 || proc_list[i].p == -1) continue;
 				pid_t term_child = waitpid(proc_list[i].p, &wstatus, WNOHANG);
 
+				
 				if(term_child > 0){
 					if(WIFEXITED(wstatus)){
 						proc_list[i].p = -1;
