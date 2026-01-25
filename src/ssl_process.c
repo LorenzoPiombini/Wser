@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
+#include <assert.h>
 #include "load.h"
 #include "handlesig.h"
 #include "ssl_process.h"
@@ -267,12 +268,13 @@ teardown:
 				}
 			}
 						
+			assert(i < 100);
 			/*wait on the children*/
-			errno = 0;
 			for(i = 0; i < 100;i++){
 				if(proc_list[i].p == 0 || proc_list[i].p == -1)
 					continue;
 
+				errno = 0;
 				if(kill(proc_list[i].p,0) == -1 && errno == ESRCH){
 						proc_list[i].p = -1;
 						proc_list[i].t = 0;
@@ -288,7 +290,6 @@ teardown:
 				}
 			}
 		}
-			continue;
 		}
 	}
 	SSL_CTX_free(ctx);
