@@ -25,11 +25,12 @@ SSL_CTX *ctx = NULL;
 
 #define USE_HTTPS 0
 static char prog[] = "wser";
-static int parse_URL(char *URL, struct Url *url);
 static int SSL_client_setup(SSL_CTX **ctx);
 static int handle_client_IO(SSL *ssl, int ret);
 static int wait_for_activity(SSL *ssl, int w_r);
-static int get_request(char *req,struct Url url);
+static long read_hex_for_transfer_encoding(char *hex, int *h_end);
+static void clean_CRNL(char *str);
+static void clean_garbage(char *str);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
@@ -595,28 +596,7 @@ void stop_listening(int sock_fd)
 	close(sock_fd);
 }
 
-static int get_request(char *req,struct Url url)
-{
-	if(snprintf(req,1024,"%s %s %s\r\n"\
-				"Host: %s\r\n"\
-				"User-Agent: %s\r\n"\
-				"Accept: %s\r\n"\
-				"Priority: %s\r\n"\
-				"Connection: %s\r\n\r\n","GET", url.resource, "HTTP/1.1",
-				url.host,
-				prog,
-				"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"u=0, i",
-				"keep-alive") == -1){
-
-		fprintf(stderr,"(%s): cannot form GET request.",prog);
-		return -1;
-	}
-
-	return 0;
-}
-
-int perform_http_request(char *URL, int method)
+int perform_http_request(char *URL, char *req)
 {
 	/*process the url*/
 	struct Url url = {0};
@@ -720,24 +700,10 @@ int perform_http_request(char *URL, int method)
 		}
 	}
 
-	char req[1024] = {0};
-	switch(method){
-	case GET:
-		if(get_request(req,url) == 1){
-			if(ssl)
-				SSL_free(ssl);
-			if(ctx)
-				SSL_CTX_free(ctx);
-			close(sock_fd);
-			return -1;
-		}
-		break;
-	default:
-
-	}
-
 	size_t bread = 0;
 	char buff[MAX_BUF_SIZE] = {0};
+	char *pbuf = &buff[0];
+	char *all_data_from_the_response = NULL;
 	if(ssl){
 		size_t bwritten = 0;
 		while(!SSL_write_ex(ssl,req,strlen(req),&bwritten)){
@@ -750,24 +716,139 @@ int perform_http_request(char *URL, int method)
 			return -1;
 		}
 
+		size_t first_alloc = 0;
+		int h_end = 0;
+		int index = 0;
 		int eof = 0;
-		while(!eof && !SSL_read_ex(ssl,buff,sizeof(buff),&bread)){
+		int tf = 0;
+		long sz = 0;
+		size_t byte_to_read = MAX_BUF_SIZE-1;
+		while((!eof && !SSL_read_ex(ssl,&pbuf[index],byte_to_read,&bread)) || bread == byte_to_read || tf){
+			if(!tf){
+				if(bread == byte_to_read){
+					/*check for transfer encoding */
+					if(strstr(pbuf,"Transfer-Encoding")){
+						tf = 1;
+						h_end = find_headers_end(pbuf, (size_t)bread);
+						sz = read_hex_for_transfer_encoding(&pbuf[h_end], &h_end); 
+						/*allocate memory for the chunk*/
+						pbuf = calloc(sz,sizeof(char));	
+						if(!pbuf){
+							SSL_free(ssl);
+							SSL_CTX_free(ctx);
+							close(sock_fd);
+							return -1;
+						}
+						byte_to_read = sz-1;
+						continue;
+					}
+					if(pbuf == &buff[0]){
+						pbuf = calloc(MAX_BUF_SIZE*2,sizeof(char));  
+						if(!pbuf){
+							SSL_free(ssl);
+							SSL_CTX_free(ctx);
+							close(sock_fd);
+							return -1;
+						}
+						first_alloc = (MAX_BUF_SIZE * 2);
+						index = MAX_BUF_SIZE;	
+						continue;
+					}
+
+					char *new = realloc(pbuf,first_alloc += MAX_BUF_SIZE);
+					if(!new){
+						SSL_free(ssl);
+						SSL_CTX_free(ctx);
+						close(sock_fd);
+						return -1;
+					}
+					pbuf = new;
+					continue;
+				}
+			}else{
+				if(!strstr(pbuf,"\r\n0\r\n")){
+					char *CRNL = strstr(pbuf,"\r\n");
+					if(CRNL){
+						/*make sure you have the all size data*/
+						*CRNL = ' ';
+						if(!strstr(CRNL,"\r\n")){
+								*CRNL = '\r';
+								index = strlen(pbuf);		
+								byte_to_read = sz - index -1;
+								assert(byte_to_read < sz);
+								if(index > sz){
+									/*realloc*/
+								}
+								continue;
+						}
+						/*we have all the chunked size info*/
+						*CRNL = '\r';
+						CRNL += 2;
+						int hinx =(int) (CRNL - pbuf);
+						long sz_to_realloc = read_hex_for_transfer_encoding(CRNL,&hinx);		
+						char *new = realloc(pbuf,sz + sz_to_realloc);
+						if(!new){
+							SSL_free(ssl);
+							SSL_CTX_free(ctx);
+							close(sock_fd);
+							return -1;
+						}
+						pbuf  = new;
+						sz += sz_to_realloc;
+						index = strlen(pbuf); 
+						byte_to_read = sz_to_realloc-1;
+						clean_CRNL(pbuf);
+						continue;
+					}
+					index = strlen(pbuf);		
+					byte_to_read = sz - index -1;
+					if(index > sz){
+						/*realloc*/
+					}
+					continue;
+				}
+				/*here you have all the body*/
+				tf = 0;
+				h_end = find_headers_end(buff, strlen(buff));
+				read_hex_for_transfer_encoding(&buff[h_end],&h_end);
+				long l = strlen(&buff[h_end]) + strlen(pbuf) +1;
+				all_data_from_the_response = calloc(l,sizeof(char));
+				if(!all_data_from_the_response){
+					SSL_free(ssl);
+					SSL_CTX_free(ctx);
+					close(sock_fd);
+					return -1;
+				}
+				clean_CRNL(pbuf);
+				/*clear the response properly*/
+				clean_garbage(pbuf);
+				size_t first_fragment = strlen(&buff[h_end]);
+				strncpy(all_data_from_the_response,&buff[h_end],first_fragment);
+				strncpy(&all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
+				free(pbuf);
+				clean_CRNL(all_data_from_the_response);
+				break;
+			}
+
+
 			int r = 0;
-			if((r=handle_client_IO(ssl,0)) == 1){
+			if((r = handle_client_IO(ssl,0)) == 1){
 				continue;
-			}else if( r == 0){
+			}else if(r == 0){
 				eof = 1;
 				continue;
 			}
-				
+
 
 			SSL_free(ssl);
 			SSL_CTX_free(ctx);
 			close(sock_fd);
 			return -1;
 		}
-		
-		fwrite(buff,1,bread,stdout);
+
+
+		fwrite(all_data_from_the_response,1,strlen(all_data_from_the_response),stdout);
+		free(all_data_from_the_response);
 		printf("\n");
 		int ret = 0;
 		while((ret = SSL_shutdown(ssl)) != 1){
@@ -795,9 +876,6 @@ int perform_http_request(char *URL, int method)
 		}
 	}
 
-	close(sock_fd);
-	return 0;
-
 	int index = find_headers_end(buff, (size_t)bread);
 
 	/* === PROCESS THE RESPONSE HEADER
@@ -811,7 +889,7 @@ int perform_http_request(char *URL, int method)
 	return 0;
 }
 
-static int parse_URL(char *URL, struct Url *url)
+int parse_URL(char *URL, struct Url *url)
 {
 	if(!URL) return -1;
 
@@ -856,23 +934,23 @@ static int handle_client_IO(SSL *ssl, int ret)
 	int err = SSL_get_error(ssl,ret);
 	ERR_print_errors_fp(stdout);
 	switch(err){
-	case SSL_ERROR_NONE:
-		return 2;
-	case SSL_ERROR_ZERO_RETURN:
-		return 0;
-	case SSL_ERROR_WANT_READ:
-		if(wait_for_activity(ssl,0) == -1)
+		case SSL_ERROR_NONE:
+			return 2;
+		case SSL_ERROR_ZERO_RETURN:
+			return 0;
+		case SSL_ERROR_WANT_READ:
+			if(wait_for_activity(ssl,0) == -1)
+				return -1;
+			return 1;
+		case SSL_ERROR_WANT_WRITE:
+			if(wait_for_activity(ssl,1) == -1)
+				return -1;
+			return 1;
+		case SSL_ERROR_SSL:
+		case SSL_ERROR_SYSCALL:
 			return -1;
-		return 1;
-	case SSL_ERROR_WANT_WRITE:
-		if(wait_for_activity(ssl,1) == -1)
+		default:
 			return -1;
-		return 1;
-	case SSL_ERROR_SSL:
-	case SSL_ERROR_SYSCALL:
-		return -1;
-	default:
-		return -1;
 	}
 	return -1;
 }
@@ -886,4 +964,57 @@ static int wait_for_activity(SSL *ssl, int w_r)
 	modify_monitor_event(fd,w_r ? EPOLLOUT : EPOLLIN);
 	int n = monitor_events();
 	return n;
+}
+
+static long read_hex_for_transfer_encoding(char *hex, int *h_end)
+{
+
+	char *t = strstr(hex,"\r\n");
+	int t_pos = (int)(t - hex);
+	*t = '\0';
+	t--;
+	while(*t != '\0' && *t != '\r' && *t != '\n') t--; 
+	
+	*h_end += strlen(++t) + 2;        
+	long n = strtol(t,NULL,16);
+	hex[t_pos] = '\r';
+	return  n;
+}
+
+static void clean_CRNL(char *str)
+{
+	char *n = NULL;
+	int c = 0;
+	while((n = strstr(str,"\r\n"))){
+		if(c == 2) return;
+		*n = ' ';
+		n++;
+		*n = ' ';	
+		c++;
+	}
+}
+static void clean_garbage(char *str)
+{
+	char *space = NULL;
+	while(( space = strstr(str, "  "))){
+		int start = space - str;
+		space += 2;
+		while(*space != ' ') space++;
+		
+
+		int end = ++space - str;
+		int n_char = 0;
+		if((end - start) > 8)
+			return;
+		
+		size_t s = strlen(&str[end+1]);
+		char cpy[s+1];
+		memset(cpy,0,s+1);
+		strncpy(cpy,&str[end+1],s);
+		strncpy(&str[start],cpy,s);
+		str[start + s]= '\0';
+		int trailing = strlen(&str[start+s+1]);
+		if(trailing > 0)
+			memset(&str[start + s],0,trailing);
+	}
 }
