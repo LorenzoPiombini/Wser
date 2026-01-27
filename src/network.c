@@ -596,14 +596,14 @@ void stop_listening(int sock_fd)
 	close(sock_fd);
 }
 
-int perform_http_request(char *URL, char *req)
+int perform_http_request(char *URL, char *req, char **body)
 {
 	/*process the url*/
 	struct Url url = {0};
 	if(parse_URL(URL,&url) == -1) return -1;	
 
 	int secure = 0;
-	if(strncmp(url.protocol,"https",5) == 0 )
+	if(strncmp(url.protocol,"https",5) == 0)
 		secure = 1;
 
 	SSL *ssl = NULL;
@@ -723,7 +723,7 @@ int perform_http_request(char *URL, char *req)
 		int tf = 0;
 		long sz = 0;
 		size_t byte_to_read = MAX_BUF_SIZE-1;
-		while((!eof && !SSL_read_ex(ssl,&pbuf[index],byte_to_read,&bread)) || bread == byte_to_read || tf){
+		while((!eof && !SSL_read_ex(ssl,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			if(!tf){
 				if(bread == byte_to_read){
 					/*check for transfer encoding */
@@ -812,21 +812,32 @@ int perform_http_request(char *URL, char *req)
 				h_end = find_headers_end(buff, strlen(buff));
 				read_hex_for_transfer_encoding(&buff[h_end],&h_end);
 				long l = strlen(&buff[h_end]) + strlen(pbuf) +1;
-				all_data_from_the_response = calloc(l,sizeof(char));
-				if(!all_data_from_the_response){
-					SSL_free(ssl);
-					SSL_CTX_free(ctx);
-					close(sock_fd);
-					return -1;
+				if(!body){
+					all_data_from_the_response = calloc(l,sizeof(char));
+					if(!all_data_from_the_response){
+						SSL_free(ssl);
+						SSL_CTX_free(ctx);
+						close(sock_fd);
+						return -1;
+					}
+				}else{
+					*body = calloc(l,sizeof(char));
+					if(!body){
+						SSL_free(ssl);
+						SSL_CTX_free(ctx);
+						close(sock_fd);
+						return -1;
+					}
 				}
+
 				clean_CRNL(pbuf);
 				/*clear the response properly*/
 				clean_garbage(pbuf);
 				size_t first_fragment = strlen(&buff[h_end]);
-				strncpy(all_data_from_the_response,&buff[h_end],first_fragment);
-				strncpy(&all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
+				strncpy( body ? *body : all_data_from_the_response,&buff[h_end],first_fragment);
+				strncpy(body ? &body[first_fragment] : &all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
 				free(pbuf);
-				clean_CRNL(all_data_from_the_response);
+				clean_CRNL(body ? *body : all_data_from_the_response);
 				break;
 			}
 
@@ -834,11 +845,10 @@ int perform_http_request(char *URL, char *req)
 			int r = 0;
 			if((r = handle_client_IO(ssl,0)) == 1){
 				continue;
-			}else if(r == 0){
+			}else if(r == 0 || r == 2){
 				eof = 1;
-				continue;
+				break;
 			}
-
 
 			SSL_free(ssl);
 			SSL_CTX_free(ctx);
@@ -847,8 +857,25 @@ int perform_http_request(char *URL, char *req)
 		}
 
 
-		fwrite(all_data_from_the_response,1,strlen(all_data_from_the_response),stdout);
-		free(all_data_from_the_response);
+		if(all_data_from_the_response){
+			fwrite(all_data_from_the_response,1,strlen(all_data_from_the_response),stdout);
+			free(all_data_from_the_response);
+		}else if(body){
+			if(*body == NULL){
+				*body = calloc(strlen(buff)+1,sizeof(char));	
+				if(!(*body)){
+					SSL_CTX_free(ctx);
+					SSL_free(ssl);
+					close(sock_fd);
+					return -1;
+				}
+				strncpy(*body,buff,strlen(buff));
+			}
+
+		}else{
+			fwrite(buff,1,strlen(buff),stdout);
+		}
+
 		printf("\n");
 		int ret = 0;
 		while((ret = SSL_shutdown(ssl)) != 1){
@@ -937,6 +964,7 @@ static int handle_client_IO(SSL *ssl, int ret)
 		case SSL_ERROR_NONE:
 			return 2;
 		case SSL_ERROR_ZERO_RETURN:
+		case SSL_ERROR_SYSCALL:
 			return 0;
 		case SSL_ERROR_WANT_READ:
 			if(wait_for_activity(ssl,0) == -1)
@@ -947,7 +975,6 @@ static int handle_client_IO(SSL *ssl, int ret)
 				return -1;
 			return 1;
 		case SSL_ERROR_SSL:
-		case SSL_ERROR_SYSCALL:
 			return -1;
 		default:
 			return -1;
