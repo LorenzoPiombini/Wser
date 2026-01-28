@@ -725,23 +725,23 @@ int perform_http_request(char *URL, char *req, char **body)
 		size_t byte_to_read = MAX_BUF_SIZE-1;
 		while((!eof && !SSL_read_ex(ssl,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			if(!tf){
-				if(bread == byte_to_read){
-					/*check for transfer encoding */
-					if(strstr(pbuf,"Transfer-Encoding")){
-						tf = 1;
-						h_end = find_headers_end(pbuf, (size_t)bread);
-						sz = read_hex_for_transfer_encoding(&pbuf[h_end], &h_end); 
-						/*allocate memory for the chunk*/
-						pbuf = calloc(sz,sizeof(char));	
-						if(!pbuf){
-							SSL_free(ssl);
-							SSL_CTX_free(ctx);
-							close(sock_fd);
-							return -1;
-						}
-						byte_to_read = sz-1;
-						continue;
+				/*check for transfer encoding */
+				if(strstr(pbuf,"Transfer-Encoding")){
+					tf = 1;
+					h_end = find_headers_end(pbuf, (size_t)bread);
+					sz = read_hex_for_transfer_encoding(&pbuf[h_end], &h_end); 
+					/*allocate memory for the chunk*/
+					pbuf = calloc(sz,sizeof(char));	
+					if(!pbuf){
+						SSL_free(ssl);
+						SSL_CTX_free(ctx);
+						close(sock_fd);
+						return -1;
 					}
+					byte_to_read = sz-1;
+					continue;
+				}
+				if(bread == byte_to_read){
 					if(pbuf == &buff[0]){
 						pbuf = calloc(MAX_BUF_SIZE*2,sizeof(char));  
 						if(!pbuf){
