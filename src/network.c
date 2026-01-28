@@ -835,7 +835,7 @@ int perform_http_request(char *URL, char *req, char **body)
 				clean_garbage(pbuf);
 				size_t first_fragment = strlen(&buff[h_end]);
 				strncpy( body ? *body : all_data_from_the_response,&buff[h_end],first_fragment);
-				strncpy(body ? &body[first_fragment] : &all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
+				strncpy(body ? &(*body)[first_fragment] : &all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
 				free(pbuf);
 				clean_CRNL(body ? *body : all_data_from_the_response);
 				break;
@@ -849,11 +849,6 @@ int perform_http_request(char *URL, char *req, char **body)
 				eof = 1;
 				break;
 			}
-
-			SSL_free(ssl);
-			SSL_CTX_free(ctx);
-			close(sock_fd);
-			return -1;
 		}
 
 
@@ -869,14 +864,13 @@ int perform_http_request(char *URL, char *req, char **body)
 					close(sock_fd);
 					return -1;
 				}
-				strncpy(*body,buff,strlen(buff));
+				int inx = find_headers_end(buff,strlen(buff));
+				strncpy(*body,&buff[inx],strlen(&buff[inx]));
 			}
-
 		}else{
 			fwrite(buff,1,strlen(buff),stdout);
 		}
 
-		printf("\n");
 		int ret = 0;
 		while((ret = SSL_shutdown(ssl)) != 1){
 			if(ret < 0 && handle_client_IO(ssl,ret) == 1)
@@ -903,16 +897,19 @@ int perform_http_request(char *URL, char *req, char **body)
 		}
 	}
 
-	int index = find_headers_end(buff, (size_t)bread);
-
-	/* === PROCESS THE RESPONSE HEADER
-	 *
-	 * TODO: if transfer encoding then look for the number and keep reading the data 
-	 * === DO NOT PRINT THE HEADER ===
-	 * */
-
-	fprintf(stderr,"\n%s\n",&buff[index]);
 	close(sock_fd);
+	int index = find_headers_end(buff, (size_t)bread);
+	
+
+	if(body && *body){
+		*body = calloc(strlen(&buff[index])+1,sizeof(char));		
+		if(!(*body)){
+
+		}
+		strncpy(*body,&buff[index],strlen(&buff[index]));
+	}else{
+		fprintf(stderr,"\n%s\n",&buff[index]);
+	}
 	return 0;
 }
 
