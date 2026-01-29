@@ -776,6 +776,26 @@ int perform_http_request(char *URL, char *req, char **body)
 								index = strlen(pbuf);		
 								byte_to_read = sz - index -1;
 								assert(byte_to_read < sz);
+								if(byte_to_read == 0){
+									int z = 0;
+									char *f = strstr(CRNL,"\r\n");
+									*f = '\0';
+									long sn = strtol(pbuf,NULL,16);
+									char *new = realloc(pbuf,sz+sn);
+									if(!new){
+										SSL_free(ssl);
+										SSL_CTX_free(ctx);
+										close(sock_fd);
+										return -1;
+									}
+									pbuf = new;
+									sz += sn;
+									index = strlen(pbuf);		
+									byte_to_read = sz - index -1;
+									assert(byte_to_read < sz);
+									continue;
+								}
+
 								if(index > sz){
 									/*realloc*/
 								}
@@ -992,12 +1012,13 @@ static int wait_for_activity(SSL *ssl, int w_r)
 
 static long read_hex_for_transfer_encoding(char *hex, int *h_end)
 {
-
 	char *t = strstr(hex,"\r\n");
 	int t_pos = (int)(t - hex);
 	*t = '\0';
 	t--;
-	while(*t != '\0' && *t != '\r' && *t != '\n') t--; 
+	while(*t != '\0' && *t != '\r' && *t != '\n'){ 
+		t--; 
+	}
 	
 	*h_end += strlen(++t) + 2;        
 	long n = strtol(t,NULL,16);
