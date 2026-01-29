@@ -36,6 +36,8 @@ static void clean_garbage(char *str);
 
 struct Connection_data cds[MAX_CON_DAT_ARR] = {0};
 
+
+
 int init_SSL(SSL_CTX **ctx){
 	long opts;
 
@@ -279,7 +281,6 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		
 	int r = 0;
 	while((r = SSL_shutdown(cd[i].ssl) != 1)){
-		int rr = 0;
 		if((r = handle_client_IO(cd[i].ssl,r)) == 1)
 			continue;
 		else if(r == 2 || r == 0)
@@ -721,7 +722,7 @@ int perform_http_request(char *URL, char *req, char **body)
 		int index = 0;
 		int eof = 0;
 		int tf = 0;
-		long sz = 0;
+		size_t sz = 0;
 		size_t byte_to_read = MAX_BUF_SIZE-1;
 		while((!eof && !SSL_read_ex(ssl,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			if(!tf){
@@ -777,7 +778,6 @@ int perform_http_request(char *URL, char *req, char **body)
 								byte_to_read = sz - index -1;
 								assert(byte_to_read < sz);
 								if(byte_to_read == 0){
-									int z = 0;
 									char *f = strstr(CRNL,"\r\n");
 									*f = '\0';
 									long sn = strtol(pbuf,NULL,16);
@@ -796,7 +796,7 @@ int perform_http_request(char *URL, char *req, char **body)
 									continue;
 								}
 
-								if(index > sz){
+								if((size_t)index > sz){
 									/*realloc*/
 								}
 								continue;
@@ -822,7 +822,7 @@ int perform_http_request(char *URL, char *req, char **body)
 					}
 					index = strlen(pbuf);		
 					byte_to_read = sz - index -1;
-					if(index > sz){
+					if((size_t)index > sz){
 						/*realloc*/
 					}
 					continue;
@@ -1048,7 +1048,6 @@ static void clean_garbage(char *str)
 		
 
 		int end = ++space - str;
-		int n_char = 0;
 		if((end - start) > 8)
 			return;
 		
@@ -1063,3 +1062,38 @@ static void clean_garbage(char *str)
 			memset(&str[start + s],0,trailing);
 	}
 }
+
+int req_builder(int method, char *urlstr, char *format_str, char *req, int length)
+{ 
+	struct Url url = {0};
+	if(parse_URL(urlstr,&url) == -1)
+		return -1;
+
+	switch(method){
+		case GET:
+			if(snprintf(req,1024,format_str,"GET", 
+						url.resource, 
+						"HTTP/1.1",
+						url.host,
+						"wser") == -1){
+				fprintf(stderr,"(%s): cannot form GET request.",prog);
+				return -1;
+			}
+			break;
+		case POST:
+			if(snprintf(req,1024,format_str,"POST", 
+						url.resource, "HTTP/1.1",
+						url.host,
+						"wser",
+						length) == -1){
+
+				fprintf(stderr,"(%s): cannot form GET request.",prog);
+				return -1;
+			}
+			break;
+		default:
+	}
+	return 0;
+}
+
+
