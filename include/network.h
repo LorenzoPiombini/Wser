@@ -68,4 +68,6 @@ int perform_http_request(char *URL, char *req, char **body);
 void stop_listening(int sock_fd);
 int parse_URL(char *URL, struct Url *url);
 int req_builder(int method, char *urlstr, char *format_str, char *req, int length);
+void SSL_client_close();
+int  SSL_client_config();
 #endif

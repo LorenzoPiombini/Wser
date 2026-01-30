@@ -22,6 +22,7 @@
 
 char cache_id[] = "wser";
 SSL_CTX *ctx = NULL;
+SSL *ssl_client = NULL;
 
 #define USE_HTTPS 0
 static char prog[] = "wser";
@@ -35,8 +36,6 @@ static void clean_garbage(char *str);
 #define MAX_BUF_SIZE 2048
 
 struct Connection_data cds[MAX_CON_DAT_ARR] = {0};
-
-
 
 int init_SSL(SSL_CTX **ctx){
 	long opts;
@@ -597,6 +596,24 @@ void stop_listening(int sock_fd)
 	close(sock_fd);
 }
 
+void SSL_client_close(){
+	SSL_CTX_free(ctx);
+	SSL_free(ssl_client);
+}
+int SSL_client_config(){
+	if(SSL_client_setup(&ctx) != 0){
+		if(ctx)
+			SSL_CTX_free(ctx);
+
+		return -1;
+	}
+	if((ssl_client = SSL_new(ctx)) == NULL){
+		SSL_CTX_free(ctx);
+		return -1;
+	}
+	return 0;
+}
+
 int perform_http_request(char *URL, char *req, char **body)
 {
 	/*process the url*/
@@ -607,17 +624,20 @@ int perform_http_request(char *URL, char *req, char **body)
 	if(strncmp(url.protocol,"https",5) == 0)
 		secure = 1;
 
-	SSL *ssl = NULL;
 	if(secure){
-		if(SSL_client_setup(&ctx) != 0){
-			if(ctx)
-				SSL_CTX_free(ctx);
+		if(!ssl_client){
+			if(SSL_client_setup(&ctx) != 0){
+				if(ctx)
+					SSL_CTX_free(ctx);
 
-			return -1;
-		}
-		if((ssl = SSL_new(ctx)) == NULL){
-			SSL_CTX_free(ctx);
-			return -1;
+				return -1;
+			}
+			if((ssl_client = SSL_new(ctx)) == NULL){
+				SSL_CTX_free(ctx);
+				return -1;
+			}
+		}else{
+			SSL_clear(ssl_client);
 		}
 	}
 
@@ -647,55 +667,39 @@ int perform_http_request(char *URL, char *req, char **body)
 	freeaddrinfo(result);
 
 	if(fcntl(sock_fd,F_SETFD,O_NONBLOCK) == -1){
-		if(ssl) 
-			SSL_free(ssl);
-		if(ctx)
-			SSL_CTX_free(ctx);
 		close(sock_fd);
 		return -1;
 	}
 
 	if(!rp) {
 		fprintf(stderr,"(%s): could not connect to '%s'.\n",prog,URL);
-		if(ssl) 
-			SSL_free(ssl);
-		if(ctx)
-			SSL_CTX_free(ctx);
 		return -1;
 	}
 
-	if(ssl){
-		if(!SSL_set_fd(ssl,sock_fd)){
-			SSL_free(ssl);
-			SSL_CTX_free(ctx);
+	if(ssl_client){
+		if(!SSL_set_fd(ssl_client,sock_fd)){
 			close(sock_fd);
 			return -1;
 		}
 
-		if(!SSL_set_tlsext_host_name(ssl,url.host)){
-			SSL_free(ssl);
-			SSL_CTX_free(ctx);
+		if(!SSL_set_tlsext_host_name(ssl_client,url.host)){
 			close(sock_fd);
 			return -1;
 		}
 
-		if(!SSL_set1_host(ssl,url.host)){
-			SSL_free(ssl);
-			SSL_CTX_free(ctx);
+		if(!SSL_set1_host(ssl_client,url.host)){
 			close(sock_fd);
 			return -1;
 		}
 
 		int ret = 0;
-		while((ret = SSL_connect(ssl)) != 1){
-			int r = handle_client_IO(ssl,ret); 
+		while((ret = SSL_connect(ssl_client)) != 1){
+			int r = handle_client_IO(ssl_client,ret); 
 			if(r == 1)
 				continue;
 			else if( r == 0)
 				break;
 
-			SSL_free(ssl);
-			SSL_CTX_free(ctx);
 			close(sock_fd);
 			return -1;
 		}
@@ -705,14 +709,12 @@ int perform_http_request(char *URL, char *req, char **body)
 	char buff[MAX_BUF_SIZE] = {0};
 	char *pbuf = &buff[0];
 	char *all_data_from_the_response = NULL;
-	if(ssl){
+	if(ssl_client){
 		size_t bwritten = 0;
-		while(!SSL_write_ex(ssl,req,strlen(req),&bwritten)){
-			if(handle_client_IO(ssl,0) == 1)
+		while(!SSL_write_ex(ssl_client,req,strlen(req),&bwritten)){
+			if(handle_client_IO(ssl_client,0) == 1)
 				continue;
 
-			SSL_free(ssl);
-			SSL_CTX_free(ctx);
 			close(sock_fd);
 			return -1;
 		}
@@ -724,18 +726,22 @@ int perform_http_request(char *URL, char *req, char **body)
 		int tf = 0;
 		size_t sz = 0;
 		size_t byte_to_read = MAX_BUF_SIZE-1;
-		while((!eof && !SSL_read_ex(ssl,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
+		while((!eof && !SSL_read_ex(ssl_client,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			if(!tf){
 				/*check for transfer encoding */
 				if(strstr(pbuf,"Transfer-Encoding")){
 					tf = 1;
-					h_end = find_headers_end(pbuf, (size_t)bread);
+					h_end = find_headers_end(pbuf, strlen(pbuf));
+					if(h_end == bread && bread < byte_to_read){
+						index = h_end;
+						byte_to_read -= index;
+						tf = 0;
+						continue;
+					}
 					sz = read_hex_for_transfer_encoding(&pbuf[h_end], &h_end); 
 					/*allocate memory for the chunk*/
 					pbuf = calloc(sz,sizeof(char));	
 					if(!pbuf){
-						SSL_free(ssl);
-						SSL_CTX_free(ctx);
 						close(sock_fd);
 						return -1;
 					}
@@ -746,8 +752,6 @@ int perform_http_request(char *URL, char *req, char **body)
 					if(pbuf == &buff[0]){
 						pbuf = calloc(MAX_BUF_SIZE*2,sizeof(char));  
 						if(!pbuf){
-							SSL_free(ssl);
-							SSL_CTX_free(ctx);
 							close(sock_fd);
 							return -1;
 						}
@@ -758,8 +762,6 @@ int perform_http_request(char *URL, char *req, char **body)
 
 					char *new = realloc(pbuf,first_alloc += MAX_BUF_SIZE);
 					if(!new){
-						SSL_free(ssl);
-						SSL_CTX_free(ctx);
 						close(sock_fd);
 						return -1;
 					}
@@ -783,8 +785,6 @@ int perform_http_request(char *URL, char *req, char **body)
 									long sn = strtol(pbuf,NULL,16);
 									char *new = realloc(pbuf,sz+sn);
 									if(!new){
-										SSL_free(ssl);
-										SSL_CTX_free(ctx);
 										close(sock_fd);
 										return -1;
 									}
@@ -808,8 +808,6 @@ int perform_http_request(char *URL, char *req, char **body)
 						long sz_to_realloc = read_hex_for_transfer_encoding(CRNL,&hinx);		
 						char *new = realloc(pbuf,sz + sz_to_realloc);
 						if(!new){
-							SSL_free(ssl);
-							SSL_CTX_free(ctx);
 							close(sock_fd);
 							return -1;
 						}
@@ -835,16 +833,12 @@ int perform_http_request(char *URL, char *req, char **body)
 				if(!body){
 					all_data_from_the_response = calloc(l,sizeof(char));
 					if(!all_data_from_the_response){
-						SSL_free(ssl);
-						SSL_CTX_free(ctx);
 						close(sock_fd);
 						return -1;
 					}
 				}else{
 					*body = calloc(l,sizeof(char));
 					if(!body){
-						SSL_free(ssl);
-						SSL_CTX_free(ctx);
 						close(sock_fd);
 						return -1;
 					}
@@ -863,7 +857,7 @@ int perform_http_request(char *URL, char *req, char **body)
 
 
 			int r = 0;
-			if((r = handle_client_IO(ssl,0)) == 1){
+			if((r = handle_client_IO(ssl_client,0)) == 1){
 				continue;
 			}else if(r == 0 || r == 2){
 				eof = 1;
@@ -879,8 +873,6 @@ int perform_http_request(char *URL, char *req, char **body)
 			if(*body == NULL){
 				*body = calloc(strlen(buff)+1,sizeof(char));	
 				if(!(*body)){
-					SSL_CTX_free(ctx);
-					SSL_free(ssl);
 					close(sock_fd);
 					return -1;
 				}
@@ -892,18 +884,14 @@ int perform_http_request(char *URL, char *req, char **body)
 		}
 
 		int ret = 0;
-		while((ret = SSL_shutdown(ssl)) != 1){
-			if(ret < 0 && handle_client_IO(ssl,ret) == 1)
+		while((ret = SSL_shutdown(ssl_client)) != 1){
+			if(ret < 0 && handle_client_IO(ssl_client,ret) == 1)
 				continue;
 
-			SSL_CTX_free(ctx);
-			SSL_free(ssl);
 			close(sock_fd);
 			return -1;
 		}
 
-		SSL_CTX_free(ctx);
-		SSL_free(ssl);
 	}else{
 		if(write(sock_fd,req,strlen(req)) == -1){
 			fprintf(stderr,"(%s): cannot send request to '%s'.\n",prog,URL);
