@@ -621,8 +621,12 @@ int perform_http_request(char *URL, char *req, char **body)
 	if(parse_URL(URL,&url) == -1) return -1;	
 
 	int secure = 0;
-	if(strncmp(url.protocol,"https",5) == 0)
+	if(!ssl_client){
+		if(strncmp(url.protocol,"https",5) == 0)
+			secure = 1;
+	} else{
 		secure = 1;
+	}
 
 	if(secure){
 		if(!ssl_client){
@@ -729,6 +733,11 @@ int perform_http_request(char *URL, char *req, char **body)
 		while((!eof && !SSL_read_ex(ssl_client,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			if(!tf){
 				/*check for transfer encoding */
+				if(pbuf[0] = '{'){
+					if(strstr(pbuf,"\"message\":")){
+						break;
+					}
+				}
 				if(strstr(pbuf,"Transfer-Encoding")){
 					tf = 1;
 					h_end = find_headers_end(pbuf, strlen(pbuf));
@@ -750,13 +759,15 @@ int perform_http_request(char *URL, char *req, char **body)
 				}
 				if(bread == byte_to_read){
 					if(pbuf == &buff[0]){
+						index = strlen(buff);	
 						pbuf = calloc(MAX_BUF_SIZE*2,sizeof(char));  
 						if(!pbuf){
 							close(sock_fd);
 							return -1;
 						}
 						first_alloc = (MAX_BUF_SIZE * 2);
-						index = MAX_BUF_SIZE;	
+						memcpy(pbuf,buff,strlen(buff));
+						byte_to_read = MAX_BUF_SIZE-1;
 						continue;
 					}
 
@@ -768,6 +779,20 @@ int perform_http_request(char *URL, char *req, char **body)
 					pbuf = new;
 					continue;
 				}
+
+				long ix = 0;
+				if((ix = find_headers_end(pbuf,strlen(pbuf))) == -1 || ix == (long)strlen(pbuf)){
+					/*response header is not complete */
+						index = strlen(pbuf);
+						if((size_t)index >= byte_to_read){
+							if(first_alloc)
+								byte_to_read =  first_alloc - index - 1;
+						}else{
+							byte_to_read -= index;
+						}
+						continue;
+				}
+
 			}else{
 				if(!strstr(pbuf,"\r\n0\r\n")){
 					char *CRNL = strstr(pbuf,"\r\n");
@@ -865,7 +890,6 @@ int perform_http_request(char *URL, char *req, char **body)
 			}
 		}
 
-
 		if(all_data_from_the_response){
 			fwrite(all_data_from_the_response,1,strlen(all_data_from_the_response),stdout);
 			free(all_data_from_the_response);
@@ -877,7 +901,11 @@ int perform_http_request(char *URL, char *req, char **body)
 					return -1;
 				}
 				int inx = find_headers_end(buff,strlen(buff));
-				strncpy(*body,&buff[inx],strlen(&buff[inx]));
+				if(inx == -1){
+					strncpy(*body,buff,strlen(buff));
+				}else{
+					strncpy(*body,&buff[inx],strlen(&buff[inx]));
+				}
 			}
 		}else{
 			fwrite(buff,1,strlen(buff),stdout);
@@ -908,8 +936,7 @@ int perform_http_request(char *URL, char *req, char **body)
 	close(sock_fd);
 	int index = find_headers_end(buff, (size_t)bread);
 	
-
-	if(body && *body){
+	if(body && !(*body)){
 		*body = calloc(strlen(&buff[index])+1,sizeof(char));		
 		if(!(*body)){
 
@@ -938,9 +965,10 @@ int parse_URL(char *URL, struct Url *url)
 		url->resource[0] = '/';
 		return 0;
 	}	
+	
 	int end_host = d_s - URL;
 	strncpy(url->host,&URL[start_host],end_host - start_host);
-	strncpy(url->resource,++d_s,strlen(&URL[end_host+1]));
+	strncpy(url->resource,d_s,strlen(&URL[end_host]));
 	return 0;
 }
 

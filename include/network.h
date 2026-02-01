@@ -5,6 +5,7 @@
 #include "response.h"
 #include "stdint.h"
 #include "openssl/ssl.h"
+#include <stdarg.h>
 
 #define SSL_HD_F 18
 #define SSL_SET_E 19

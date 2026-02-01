@@ -19,7 +19,6 @@
 
 char prog[] = "wser";
 
-#define USE_FORK 1
 
 int main(int argc, char **argv)
 {	
@@ -537,7 +536,12 @@ client:
 	while((option = getopt(argc,argv,"g:")) != -1){
 		switch(option){
 		case 'g':
-			perform_http_request(optarg,(int)GET);
+			/*create get request*/
+			char buff[1024] = {0};
+			if(req_builder(GET, optarg,F_STR_GET, buff,0) == -1)
+				return -1;
+			perform_http_request(optarg,buff,NULL);
+			SSL_client_close();
 			break;
 		default:
 			break;
