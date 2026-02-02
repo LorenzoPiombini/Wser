@@ -32,6 +32,7 @@ static int wait_for_activity(SSL *ssl, int w_r);
 static long read_hex_for_transfer_encoding(char *hex, int *h_end);
 static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
+static void debugf(char *fmt);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
@@ -733,7 +734,7 @@ int perform_http_request(char *URL, char *req, char **body)
 		while((!eof && !SSL_read_ex(ssl_client,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			if(!tf){
 				/*check for transfer encoding */
-				if(pbuf[0] = '{'){
+				if(pbuf[0] == '{'){
 					if(strstr(pbuf,"\"message\":")){
 						break;
 					}
@@ -749,12 +750,22 @@ int perform_http_request(char *URL, char *req, char **body)
 					}
 					sz = read_hex_for_transfer_encoding(&pbuf[h_end], &h_end); 
 					/*allocate memory for the chunk*/
+					size_t r = 0;
+					if(( r = strlen(&pbuf[h_end])) > sz)
+						sz += r;
+
 					pbuf = calloc(sz,sizeof(char));	
 					if(!pbuf){
 						close(sock_fd);
 						return -1;
 					}
-					byte_to_read = sz-1;
+
+					index = r;
+					byte_to_read = sz - r - 1;
+					assert(byte_to_read < sz);
+					assert(byte_to_read > 0);
+					strncpy(pbuf,&buff[h_end],r);
+					first_alloc = sz;
 					continue;
 				}
 				if(bread == byte_to_read){
@@ -785,15 +796,21 @@ int perform_http_request(char *URL, char *req, char **body)
 					/*response header is not complete */
 						index = strlen(pbuf);
 						if((size_t)index >= byte_to_read){
-							if(first_alloc)
+							if(first_alloc){
 								byte_to_read =  first_alloc - index - 1;
+								assert(byte_to_read < sz);
+								assert(byte_to_read > 0);
+							}
 						}else{
 							byte_to_read -= index;
+							assert(byte_to_read < sz);
+							assert(byte_to_read > 0);
 						}
 						continue;
 				}
 
 			}else{
+			//	debugf(pbuf);
 				if(!strstr(pbuf,"\r\n0\r\n")){
 					char *CRNL = strstr(pbuf,"\r\n");
 					if(CRNL){
@@ -804,6 +821,7 @@ int perform_http_request(char *URL, char *req, char **body)
 								index = strlen(pbuf);		
 								byte_to_read = sz - index -1;
 								assert(byte_to_read < sz);
+								assert(byte_to_read > 0);
 								if(byte_to_read == 0){
 									char *f = strstr(CRNL,"\r\n");
 									*f = '\0';
@@ -818,6 +836,7 @@ int perform_http_request(char *URL, char *req, char **body)
 									index = strlen(pbuf);		
 									byte_to_read = sz - index -1;
 									assert(byte_to_read < sz);
+									assert(byte_to_read > 0);
 									continue;
 								}
 
@@ -834,19 +853,31 @@ int perform_http_request(char *URL, char *req, char **body)
 						char *new = realloc(pbuf,sz + sz_to_realloc);
 						if(!new){
 							close(sock_fd);
-							return -1;
+							break;
 						}
 						pbuf  = new;
 						sz += sz_to_realloc;
 						index = strlen(pbuf); 
 						byte_to_read = sz_to_realloc-1;
+						assert(byte_to_read < sz);
+						assert(byte_to_read > 0);
 						clean_CRNL(pbuf);
 						continue;
 					}
 					index = strlen(pbuf);		
 					byte_to_read = sz - index -1;
-					if((size_t)index > sz){
+					if(byte_to_read == 0 && first_alloc > 0){
 						/*realloc*/
+						char *new = realloc(pbuf,sz += MAX_BUF_SIZE);
+						if(!new){
+							close(sock_fd);
+							break;
+						}
+						memset(&new[index],0,MAX_BUF_SIZE);
+						pbuf = new;
+						byte_to_read = MAX_BUF_SIZE - 1;		
+						assert(byte_to_read < sz);
+						assert(byte_to_read > 0);
 					}
 					continue;
 				}
@@ -1113,3 +1144,21 @@ int req_builder(int method, char *urlstr, char *format_str, char *req, int lengt
 }
 
 
+static void debugf(char *fmt)
+{
+	char *start = fmt;
+	for(;*fmt;fmt++){
+		if(*fmt =='\r'){
+			printf("\\r");
+			continue;
+		}
+		if(*fmt == '\n'){
+			printf("\\n");
+			continue;
+		}
+
+		printf("%c",*fmt);
+	}
+	fmt = start;
+	printf("\n====================\n");
+}
