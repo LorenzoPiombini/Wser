@@ -766,6 +766,7 @@ int perform_http_request(char *URL, char *req, char **body)
 					assert(byte_to_read > 0);
 					strncpy(pbuf,&buff[h_end],r);
 					first_alloc = sz;
+					assert((sz - strlen(pbuf)) > byte_to_read);
 					continue;
 				}
 				if(bread == byte_to_read){
@@ -779,6 +780,8 @@ int perform_http_request(char *URL, char *req, char **body)
 						first_alloc = (MAX_BUF_SIZE * 2);
 						memcpy(pbuf,buff,strlen(buff));
 						byte_to_read = MAX_BUF_SIZE-1;
+						sz = first_alloc;
+						assert((sz - strlen(pbuf)) > byte_to_read);
 						continue;
 					}
 
@@ -800,11 +803,13 @@ int perform_http_request(char *URL, char *req, char **body)
 								byte_to_read =  first_alloc - index - 1;
 								assert(byte_to_read < sz);
 								assert(byte_to_read > 0);
+								assert((sz - strlen(pbuf)) > byte_to_read);
 							}
 						}else{
 							byte_to_read -= index;
 							assert(byte_to_read < sz);
 							assert(byte_to_read > 0);
+							assert((sz - strlen(pbuf)) > byte_to_read);
 						}
 						continue;
 				}
@@ -837,6 +842,7 @@ int perform_http_request(char *URL, char *req, char **body)
 									byte_to_read = sz - index -1;
 									assert(byte_to_read < sz);
 									assert(byte_to_read > 0);
+									assert((sz - strlen(pbuf)) > byte_to_read);
 									continue;
 								}
 
@@ -850,17 +856,19 @@ int perform_http_request(char *URL, char *req, char **body)
 						CRNL += 2;
 						int hinx =(int) (CRNL - pbuf);
 						long sz_to_realloc = read_hex_for_transfer_encoding(CRNL,&hinx);		
-						char *new = realloc(pbuf,sz + sz_to_realloc);
+						assert(sz_to_realloc > 0);
+						char *new = realloc(pbuf,sz += sz_to_realloc);
 						if(!new){
 							close(sock_fd);
 							break;
 						}
 						pbuf  = new;
-						sz += sz_to_realloc;
+						memset(&pbuf[strlen(pbuf)],0,sz- strlen(pbuf));
 						index = strlen(pbuf); 
 						byte_to_read = sz_to_realloc-1;
 						assert(byte_to_read < sz);
 						assert(byte_to_read > 0);
+						assert((sz - strlen(pbuf)) > byte_to_read);
 						clean_CRNL(pbuf);
 						continue;
 					}
@@ -873,11 +881,12 @@ int perform_http_request(char *URL, char *req, char **body)
 							close(sock_fd);
 							break;
 						}
-						memset(&new[index],0,MAX_BUF_SIZE);
 						pbuf = new;
-						byte_to_read = MAX_BUF_SIZE - 1;		
+						memset(&pbuf[strlen(pbuf)],0,sz - strlen(pbuf));
+						byte_to_read = sz - strlen(pbuf) - 1;		
 						assert(byte_to_read < sz);
 						assert(byte_to_read > 0);
+						assert((sz - strlen(pbuf)) > byte_to_read);
 					}
 					continue;
 				}
@@ -1023,7 +1032,7 @@ static int SSL_client_setup(SSL_CTX **ctx)
 static int handle_client_IO(SSL *ssl, int ret)
 {
 	int err = SSL_get_error(ssl,ret);
-	ERR_print_errors_fp(stdout);
+	ERR_print_errors_fp(stderr);
 	switch(err){
 		case SSL_ERROR_NONE:
 			return 2;
