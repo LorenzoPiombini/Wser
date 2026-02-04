@@ -729,6 +729,7 @@ int perform_http_request(char *URL, char *req, char **body)
 		int index = 0;
 		int eof = 0;
 		int tf = 0;
+		int hf = 0;
 		size_t sz = 0;
 		size_t byte_to_read = MAX_BUF_SIZE-1;
 		while((!eof && !SSL_read_ex(ssl_client,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
@@ -739,10 +740,10 @@ int perform_http_request(char *URL, char *req, char **body)
 						break;
 					}
 				}
-				if(strstr(pbuf,"Transfer-Encoding")){
+				if(strstr(pbuf,"Transfer-Encoding") && !hf){
 					tf = 1;
 					h_end = find_headers_end(pbuf, strlen(pbuf));
-					if(h_end == bread && bread < byte_to_read){
+					if((h_end == bread && bread < byte_to_read) || h_end == -1){
 						index = h_end;
 						byte_to_read -= index;
 						tf = 0;
@@ -769,7 +770,7 @@ int perform_http_request(char *URL, char *req, char **body)
 					assert((sz - strlen(pbuf)) > byte_to_read);
 					continue;
 				}
-				if(bread == byte_to_read){
+				if(bread == byte_to_read && !hf){
 					if(pbuf == &buff[0]){
 						index = strlen(buff);	
 						pbuf = calloc(MAX_BUF_SIZE*2,sizeof(char));  
@@ -791,12 +792,15 @@ int perform_http_request(char *URL, char *req, char **body)
 						return -1;
 					}
 					pbuf = new;
+					index = strlen(pbuf);
+					byte_to_read = first_alloc - index;
 					continue;
 				}
 
 				long ix = 0;
-				if((ix = find_headers_end(pbuf,strlen(pbuf))) == -1 || ix == (long)strlen(pbuf)){
-					/*response header is not complete */
+				if(!hf){
+					if((ix = find_headers_end(pbuf,strlen(pbuf))) == -1){
+						/*response header is not complete */
 						index = strlen(pbuf);
 						if((size_t)index >= byte_to_read){
 							if(first_alloc){
@@ -807,49 +811,89 @@ int perform_http_request(char *URL, char *req, char **body)
 							}
 						}else{
 							byte_to_read -= index;
-							assert(byte_to_read < sz);
+							//assert(byte_to_read < sz);
 							assert(byte_to_read > 0);
-							assert((sz - strlen(pbuf)) > byte_to_read);
+							//assert((sz - strlen(pbuf)) > byte_to_read);
 						}
 						continue;
-				}
+					}
+					hf = 1;
+					/*header is compleate*/
+					char *cont_lt = NULL;
+					if((cont_lt = strstr(pbuf,"Content-Length"))){
+						cont_lt += strlen("Content-Length: ");
+						char *end = strstr(cont_lt,"\r");
+						assert(end != NULL);
+						long lt = end - cont_lt;
+						char num[lt+1];
+						memset(num,0,lt+1);
+						strncpy(num,cont_lt,lt);
+						errno = 0;
+						long n = strtol(num,NULL,10);
+						if(errno == EINVAL){
+							/*Handle this*/	
+						}
 
+						if((int)strlen(&pbuf[ix]) == n)
+							break;
+
+						if(&buff[0] != pbuf){
+							free(pbuf);
+							pbuf = NULL;
+						}
+
+						pbuf = calloc(n+1,sizeof(char));
+						if(!pbuf){
+							/*handle*/
+
+						}
+						first_alloc = n;
+						index = 0;
+						byte_to_read = n;
+						continue;
+					}
+				} else{
+					index = strlen(pbuf);
+					byte_to_read  = first_alloc - index;
+					if(byte_to_read != 0)
+						continue;
+				}
 			}else{
-			//	debugf(pbuf);
+				//	debugf(pbuf);
 				if(!strstr(pbuf,"\r\n0\r\n")){
 					char *CRNL = strstr(pbuf,"\r\n");
 					if(CRNL){
 						/*make sure you have the all size data*/
 						*CRNL = ' ';
 						if(!strstr(CRNL,"\r\n")){
-								*CRNL = '\r';
+							*CRNL = '\r';
+							index = strlen(pbuf);		
+							byte_to_read = sz - index -1;
+							assert(byte_to_read < sz);
+							assert(byte_to_read > 0);
+							if(byte_to_read == 0){
+								char *f = strstr(CRNL,"\r\n");
+								*f = '\0';
+								long sn = strtol(pbuf,NULL,16);
+								char *new = realloc(pbuf,sz+sn);
+								if(!new){
+									close(sock_fd);
+									return -1;
+								}
+								pbuf = new;
+								sz += sn;
 								index = strlen(pbuf);		
 								byte_to_read = sz - index -1;
 								assert(byte_to_read < sz);
 								assert(byte_to_read > 0);
-								if(byte_to_read == 0){
-									char *f = strstr(CRNL,"\r\n");
-									*f = '\0';
-									long sn = strtol(pbuf,NULL,16);
-									char *new = realloc(pbuf,sz+sn);
-									if(!new){
-										close(sock_fd);
-										return -1;
-									}
-									pbuf = new;
-									sz += sn;
-									index = strlen(pbuf);		
-									byte_to_read = sz - index -1;
-									assert(byte_to_read < sz);
-									assert(byte_to_read > 0);
-									assert((sz - strlen(pbuf)) > byte_to_read);
-									continue;
-								}
-
-								if((size_t)index > sz){
-									/*realloc*/
-								}
+								assert((sz - strlen(pbuf)) > byte_to_read);
 								continue;
+							}
+
+							if((size_t)index > sz){
+								/*realloc*/
+							}
+							continue;
 						}
 						/*we have all the chunked size info*/
 						*CRNL = '\r';
@@ -948,7 +992,12 @@ int perform_http_request(char *URL, char *req, char **body)
 				}
 			}
 		}else{
-			fwrite(buff,1,strlen(buff),stdout);
+			if(&buff[0] == pbuf){
+				fwrite(buff,1,strlen(buff),stdout);
+			}else{
+				fwrite(pbuf,1,strlen(pbuf),stdout);
+				free(pbuf);
+			}
 		}
 
 		int ret = 0;
@@ -975,7 +1024,7 @@ int perform_http_request(char *URL, char *req, char **body)
 
 	close(sock_fd);
 	int index = find_headers_end(buff, (size_t)bread);
-	
+
 	if(body && !(*body)){
 		*body = calloc(strlen(&buff[index])+1,sizeof(char));		
 		if(!(*body)){
