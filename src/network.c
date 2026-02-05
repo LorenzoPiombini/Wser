@@ -29,7 +29,7 @@ static char prog[] = "wser";
 static int SSL_client_setup(SSL_CTX **ctx);
 static int handle_client_IO(SSL *ssl, int ret);
 static int wait_for_activity(SSL *ssl, int w_r);
-static long read_hex_for_transfer_encoding(char *hex, int *h_end);
+static long read_hex_for_transfer_encoding(char *, long *);
 static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
 static void debugf(char *fmt);
@@ -730,9 +730,46 @@ int perform_http_request(char *URL, char *req, char **body)
 		int eof = 0;
 		int tf = 0;
 		int hf = 0;
+		long ix = 0;
 		size_t sz = 0;
 		size_t byte_to_read = MAX_BUF_SIZE-1;
 		while((!eof && !SSL_read_ex(ssl_client,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
+			
+			if(!hf){
+				if((ix = find_headers_end(pbuf,strlen(pbuf))) == -1){
+					/*response header is not complete */
+					index = strlen(pbuf);
+					if((size_t)index >= byte_to_read){
+						if(first_alloc){
+							byte_to_read =  first_alloc - index - 1;
+							assert(byte_to_read < sz);
+							assert(byte_to_read > 0);
+							assert((sz - strlen(pbuf)) > byte_to_read);
+						}else{
+							if(&buff[0] == pbuf){
+								pbuf = calloc(MAX_BUF_SIZE*2,sizeof(char));
+								if(!pbuf){
+									/*TODO: handle*/
+								}
+								first_alloc += MAX_BUF_SIZE*2;
+								memcpy(pbuf,buff,strlen(buff));
+								index = strlen(pbuf);
+								byte_to_read = first_alloc - index - 1;
+								continue;
+							}	
+						}
+					}else{
+						byte_to_read -= index;
+						//assert(byte_to_read < sz);
+						assert(byte_to_read > 0);
+						//assert((sz - strlen(pbuf)) > byte_to_read);
+					}
+					continue;
+				}
+			}
+
+			hf = 1;
+			/*HERE YOU HAVE ALL THE HEADER*/
 			if(!tf){
 				/*check for transfer encoding */
 				if(pbuf[0] == '{'){
@@ -740,36 +777,51 @@ int perform_http_request(char *URL, char *req, char **body)
 						break;
 					}
 				}
-				if(strstr(pbuf,"Transfer-Encoding") && !hf){
+				if(strstr(pbuf,"transfer-encoding") || strstr(pbuf,"Transfer-Encoding")){
 					tf = 1;
-					h_end = find_headers_end(pbuf, strlen(pbuf));
-					if((h_end == bread && bread < byte_to_read) || h_end == -1){
-						index = h_end;
-						byte_to_read -= index;
-						tf = 0;
+					sz = read_hex_for_transfer_encoding(&pbuf[ix], &ix); 
+					if(sz == 0)
+						break;
+
+					/*allocate memory for the chunk*/
+					if(&buff[0] == pbuf){
+						/*Discard the header -- keep the body --*/
+						/* 100 bytes of extra buffer*/
+						pbuf = calloc(sz += 100,sizeof(char));	
+						if(!pbuf){
+							close(sock_fd);
+							return -1;
+						}
+
+
+						byte_to_read = sz - strlen(&buff[ix]) - 1;
+						memcpy(pbuf,&buff[ix],strlen(&buff[ix]));
+						assert(byte_to_read < sz);
+						assert(byte_to_read > 0);
+						first_alloc = sz;
+						index = strlen(pbuf);
+						continue;
+
+					}else{
+						/*Discard the header -- keep the body --*/
+						/* 100 bytes of extra buffer*/
+						char *new= calloc(sz += 100,sizeof(char));
+						if(!pbuf){
+							close(sock_fd);
+							return -1;
+						}
+						memcpy(new,&pbuf[ix],strlen(&pbuf[ix]));
+						free(pbuf);
+						pbuf = new;
+						index = strlen(pbuf);
+						byte_to_read = sz - strlen(&pbuf[ix]) - 1;
+						assert(byte_to_read < sz);
+						assert(byte_to_read > 0);
+						first_alloc = sz;
 						continue;
 					}
-					sz = read_hex_for_transfer_encoding(&pbuf[h_end], &h_end); 
-					/*allocate memory for the chunk*/
-					size_t r = 0;
-					if(( r = strlen(&pbuf[h_end])) > sz)
-						sz += r;
-
-					pbuf = calloc(sz,sizeof(char));	
-					if(!pbuf){
-						close(sock_fd);
-						return -1;
-					}
-
-					index = r;
-					byte_to_read = sz - r - 1;
-					assert(byte_to_read < sz);
-					assert(byte_to_read > 0);
-					strncpy(pbuf,&buff[h_end],r);
-					first_alloc = sz;
-					assert((sz - strlen(pbuf)) > byte_to_read);
-					continue;
 				}
+
 				if(bread == byte_to_read && !hf){
 					if(pbuf == &buff[0]){
 						index = strlen(buff);	
@@ -793,70 +845,63 @@ int perform_http_request(char *URL, char *req, char **body)
 					}
 					pbuf = new;
 					index = strlen(pbuf);
-					byte_to_read = first_alloc - index;
+					byte_to_read = first_alloc - index - 1;
 					continue;
 				}
 
-				long ix = 0;
-				if(!hf){
-					if((ix = find_headers_end(pbuf,strlen(pbuf))) == -1){
-						/*response header is not complete */
-						index = strlen(pbuf);
-						if((size_t)index >= byte_to_read){
-							if(first_alloc){
-								byte_to_read =  first_alloc - index - 1;
-								assert(byte_to_read < sz);
-								assert(byte_to_read > 0);
-								assert((sz - strlen(pbuf)) > byte_to_read);
-							}
-						}else{
-							byte_to_read -= index;
-							//assert(byte_to_read < sz);
-							assert(byte_to_read > 0);
-							//assert((sz - strlen(pbuf)) > byte_to_read);
-						}
-						continue;
+				/*header is compleate*/
+				char *cont_lt = NULL;
+				if((cont_lt = strstr(pbuf,"Content-Length"))){
+					cont_lt += strlen("Content-Length: ");
+					char *end = strstr(cont_lt,"\r");
+					assert(end != NULL);
+					long lt = end - cont_lt;
+					char num[lt+1];
+					memset(num,0,lt+1);
+					strncpy(num,cont_lt,lt);
+					errno = 0;
+					long n = strtol(num,NULL,10);
+					if(errno == EINVAL){
+						/*Handle this*/	
 					}
-					hf = 1;
-					/*header is compleate*/
-					char *cont_lt = NULL;
-					if((cont_lt = strstr(pbuf,"Content-Length"))){
-						cont_lt += strlen("Content-Length: ");
-						char *end = strstr(cont_lt,"\r");
-						assert(end != NULL);
-						long lt = end - cont_lt;
-						char num[lt+1];
-						memset(num,0,lt+1);
-						strncpy(num,cont_lt,lt);
-						errno = 0;
-						long n = strtol(num,NULL,10);
-						if(errno == EINVAL){
-							/*Handle this*/	
+
+					if((int)strlen(&pbuf[ix]) == n){
+						break;
+					}else if((int)strlen(&pbuf[ix]) < n){
+						char *temp = calloc(n+1,sizeof(char));
+						if(!temp){
+							/*handle*/
 						}
 
-						if((int)strlen(&pbuf[ix]) == n)
-							break;
-
+						memcpy(temp,&pbuf[ix],strlen(&pbuf[ix]));
 						if(&buff[0] != pbuf){
 							free(pbuf);
 							pbuf = NULL;
 						}
 
-						pbuf = calloc(n+1,sizeof(char));
-						if(!pbuf){
-							/*handle*/
-
-						}
+						pbuf = temp;
 						first_alloc = n;
-						index = 0;
+						index = strlen(pbuf);
 						byte_to_read = n;
 						continue;
 					}
-				} else{
-					index = strlen(pbuf);
-					byte_to_read  = first_alloc - index;
-					if(byte_to_read != 0)
-						continue;
+
+					/*TODO: is this necessery?*/
+
+					if(&buff[0] != pbuf){
+						free(pbuf);
+						pbuf = NULL;
+					}
+
+					pbuf = calloc(n+1,sizeof(char));
+					if(!pbuf){
+						/*handle*/
+
+					}
+					first_alloc = n;
+					index = 0;
+					byte_to_read = n;
+					continue;
 				}
 			}else{
 				//	debugf(pbuf);
@@ -870,7 +915,6 @@ int perform_http_request(char *URL, char *req, char **body)
 							index = strlen(pbuf);		
 							byte_to_read = sz - index -1;
 							assert(byte_to_read < sz);
-							assert(byte_to_read > 0);
 							if(byte_to_read == 0){
 								char *f = strstr(CRNL,"\r\n");
 								*f = '\0';
@@ -898,7 +942,7 @@ int perform_http_request(char *URL, char *req, char **body)
 						/*we have all the chunked size info*/
 						*CRNL = '\r';
 						CRNL += 2;
-						int hinx =(int) (CRNL - pbuf);
+						long hinx =(int) (CRNL - pbuf);
 						long sz_to_realloc = read_hex_for_transfer_encoding(CRNL,&hinx);		
 						assert(sz_to_realloc > 0);
 						char *new = realloc(pbuf,sz += sz_to_realloc);
@@ -936,9 +980,16 @@ int perform_http_request(char *URL, char *req, char **body)
 				}
 				/*here you have all the body*/
 				tf = 0;
-				h_end = find_headers_end(buff, strlen(buff));
-				read_hex_for_transfer_encoding(&buff[h_end],&h_end);
-				long l = strlen(&buff[h_end]) + strlen(pbuf) +1;
+				long l = 0;
+				if(&buff[0] == pbuf){
+					h_end = find_headers_end(buff, strlen(buff));
+					read_hex_for_transfer_encoding(&buff[h_end],&h_end);
+					l = strlen(&buff[h_end]) + strlen(pbuf) +1;
+
+				}else{
+					l =  strlen(pbuf) + 1;
+				}
+
 				if(!body){
 					all_data_from_the_response = calloc(l,sizeof(char));
 					if(!all_data_from_the_response){
@@ -956,11 +1007,17 @@ int perform_http_request(char *URL, char *req, char **body)
 				clean_CRNL(pbuf);
 				/*clear the response properly*/
 				clean_garbage(pbuf);
-				size_t first_fragment = strlen(&buff[h_end]);
-				strncpy( body ? *body : all_data_from_the_response,&buff[h_end],first_fragment);
-				strncpy(body ? &(*body)[first_fragment] : &all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
-				free(pbuf);
-				clean_CRNL(body ? *body : all_data_from_the_response);
+				if(&buff[0] == pbuf){
+					size_t first_fragment = strlen(&buff[h_end]);
+					strncpy( body ? *body : all_data_from_the_response,&buff[h_end],first_fragment);
+					strncpy(body ? &(*body)[first_fragment] : &all_data_from_the_response[first_fragment],pbuf,strlen(pbuf));
+					free(pbuf);
+					clean_CRNL(body ? *body : all_data_from_the_response);
+				}else{
+					strncpy( body ? *body : all_data_from_the_response,pbuf,strlen(pbuf));
+					free(pbuf);
+					pbuf = NULL;
+				}
 				break;
 			}
 
@@ -1098,6 +1155,9 @@ static int handle_client_IO(SSL *ssl, int ret)
 			return 1;
 		case SSL_ERROR_SSL:
 			return -1;
+		case SSL_ERROR_WANT_CONNECT:
+		case SSL_ERROR_WANT_ACCEPT:
+			return 1;
 		default:
 			return -1;
 	}
@@ -1115,7 +1175,7 @@ static int wait_for_activity(SSL *ssl, int w_r)
 	return n;
 }
 
-static long read_hex_for_transfer_encoding(char *hex, int *h_end)
+static long read_hex_for_transfer_encoding(char *hex, long *h_end)
 {
 	char *t = strstr(hex,"\r\n");
 	int t_pos = (int)(t - hex);
