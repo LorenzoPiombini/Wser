@@ -936,6 +936,7 @@ int perform_http_request(char *URL, char *req, char **body)
 
 							if((size_t)index > sz){
 								/*realloc*/
+								printf("you are missing a realloc\n");
 							}
 							continue;
 						}
@@ -944,7 +945,9 @@ int perform_http_request(char *URL, char *req, char **body)
 						CRNL += 2;
 						long hinx =(int) (CRNL - pbuf);
 						long sz_to_realloc = read_hex_for_transfer_encoding(CRNL,&hinx);		
-						assert(sz_to_realloc > 0);
+						if(sz_to_realloc == 0)
+							break;
+
 						char *new = realloc(pbuf,sz += sz_to_realloc);
 						if(!new){
 							close(sock_fd);
@@ -1036,16 +1039,20 @@ int perform_http_request(char *URL, char *req, char **body)
 			free(all_data_from_the_response);
 		}else if(body){
 			if(*body == NULL){
-				*body = calloc(strlen(buff)+1,sizeof(char));	
+				*body = calloc(strlen(pbuf)+1,sizeof(char));	
 				if(!(*body)){
 					close(sock_fd);
 					return -1;
 				}
-				int inx = find_headers_end(buff,strlen(buff));
+				int inx = find_headers_end(pbuf,strlen(pbuf));
 				if(inx == -1){
-					strncpy(*body,buff,strlen(buff));
+					strncpy(*body,pbuf,strlen(pbuf));
+					if(pbuf != &buff[0])
+						free(pbuf);
 				}else{
-					strncpy(*body,&buff[inx],strlen(&buff[inx]));
+					strncpy(*body,&pbuf[inx],strlen(&pbuf[inx]));
+					if(pbuf != &buff[0])
+						free(pbuf);
 				}
 			}
 		}else{
