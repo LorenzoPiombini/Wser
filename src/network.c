@@ -725,7 +725,7 @@ int perform_http_request(char *URL, char *req, char **body)
 		}
 
 		size_t first_alloc = 0;
-		int h_end = 0;
+		long h_end = 0;
 		int index = 0;
 		int eof = 0;
 		int tf = 0;
@@ -766,9 +766,9 @@ int perform_http_request(char *URL, char *req, char **body)
 					}
 					continue;
 				}
+				hf = 1;
 			}
 
-			hf = 1;
 			/*HERE YOU HAVE ALL THE HEADER*/
 			if(!tf){
 				/*check for transfer encoding */
@@ -786,22 +786,25 @@ int perform_http_request(char *URL, char *req, char **body)
 					/*allocate memory for the chunk*/
 					if(&buff[0] == pbuf){
 						/*Discard the header -- keep the body --*/
-						/* 100 bytes of extra buffer*/
-						pbuf = calloc(sz += 100,sizeof(char));	
+						size_t len = strlen(&buff[ix]);
+						if(sz < len){
+							sz *= 2;	
+						}
+
+						pbuf = calloc(sz+1,sizeof(char));	
 						if(!pbuf){
 							close(sock_fd);
 							return -1;
 						}
 
 
-						byte_to_read = sz - strlen(&buff[ix]) - 1;
-						memcpy(pbuf,&buff[ix],strlen(&buff[ix]));
+						byte_to_read = sz - len -1;
+						memcpy(pbuf,&buff[ix],len);
 						assert(byte_to_read < sz);
 						assert(byte_to_read > 0);
 						first_alloc = sz;
 						index = strlen(pbuf);
 						continue;
-
 					}else{
 						/*Discard the header -- keep the body --*/
 						/* 100 bytes of extra buffer*/
