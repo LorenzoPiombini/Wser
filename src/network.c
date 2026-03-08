@@ -732,6 +732,7 @@ int perform_http_request(char *URL, char *req, char **body)
 		int hf = 0;
 		long ix = 0;
 		size_t sz = 0;
+		int cl = 0;
 		size_t byte_to_read = MAX_BUF_SIZE-1;
 		while((!eof && !SSL_read_ex(ssl_client,&pbuf[index],byte_to_read,&bread)) || (bread <= byte_to_read) || tf){
 			
@@ -855,6 +856,7 @@ int perform_http_request(char *URL, char *req, char **body)
 				/*header is compleate*/
 				char *cont_lt = NULL;
 				if((cont_lt = strstr(pbuf,"Content-Length"))){
+					cl = 1;
 					cont_lt += strlen("Content-Length: ");
 					char *end = strstr(cont_lt,"\r");
 					assert(end != NULL);
@@ -885,7 +887,8 @@ int perform_http_request(char *URL, char *req, char **body)
 						pbuf = temp;
 						first_alloc = n;
 						index = strlen(pbuf);
-						byte_to_read = n;
+						/* we already have part of the body */
+						byte_to_read = n - index;
 						continue;
 					}
 
@@ -905,6 +908,15 @@ int perform_http_request(char *URL, char *req, char **body)
 					index = 0;
 					byte_to_read = n;
 					continue;
+				}
+				if(cl){
+					if(byte_to_read - bread > 0){
+						index = strlen(pbuf);
+						byte_to_read = byte_to_read - bread;
+						continue;
+					}
+					cl = 0;
+					break;
 				}
 			}else{
 				//	debugf(pbuf);
