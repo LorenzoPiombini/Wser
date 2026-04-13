@@ -10,6 +10,8 @@
 #define STD_LT_RESOURCE 550
 #define DEFAULT "HTTP/1.1"
 #define HTTP2 "HTTP/2"
+#define KEEP_ALIVE "keep-alive"
+
 /*TODO: make this macro a configuration type of thing*/
 #define ORIGIN_DEF "http://artech:8080"
 
@@ -35,6 +37,7 @@ struct Request{
 	char *d_req;
 	ssize_t size;
 	int method;
+	char protocol[MIN_HEAD_FIELD];
 	char host[MIN_HEAD_FIELD];
 	char resource[STD_LT_RESOURCE];
 	char connection[STD_LT_RESOURCE];

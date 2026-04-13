@@ -104,46 +104,6 @@ static int read_req_raw_bytes(struct Request *req)
 	return 0;	
 }
 
-/*TODO: delete this old method*/
-static int OLD_handle_request(struct Request *req)
-{
-	int h_end = 0;
-	if((h_end = get_headers_block(req)) == -1) return BAD_REQ;	
-
-	char head[h_end+1];
-	memset(head,0,h_end+1);
-	if(req->d_req)
-		strncpy(head,req->d_req,h_end);
-	else
-		strncpy(head,req->req,h_end);
-
-	if(parse_header(head, req) == BAD_REQ) return BAD_REQ;
-
-	map_content_type(req);
-	if(req->method == POST){
-		/*we should have a body*/
-		if(req->d_req){
-			if((req->size - h_end) < STD_REQ_BDY_CNT){
-				strncpy(req->req_body.content,&req->d_req[h_end],(req->size - h_end) - 1 );
-				return 0;
-			}else{
-				req->req_body.d_cont = calloc(req->size - h_end, sizeof(char));
-				if(!req->req_body.d_cont){
-					fprintf(stderr,"(%s): calloc failed with error '%s', %s:%d\n",
-							prog,strerror(errno),__FILE__,__LINE__-2);
-					return BAD_REQ;
-				}
-				strncpy(req->req_body.d_cont, &req->d_req[h_end],(req->size -h_end) - 1);
-				return 0;
-			}
-		}	
-
-		if(((req->size - h_end) - 1) <= 0) return BAD_REQ;
-		strncpy(req->req_body.content,&req->req[h_end],(req->size - h_end) - 1);
-	}
-	return 0;
-}
-
 
 int set_up_request(ssize_t bytes,struct Request *req)
 {	
