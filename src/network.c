@@ -1250,12 +1250,13 @@ static void clean_garbage(char *str)
 	}
 }
 
-int req_builder(int method, char *urlstr, char *format_str, char *req, int length)
+int req_builder(int method, char *urlstr, char *format_str, char *req, int length,int mode)
 { 
 	struct Url url = {0};
 	if(parse_URL(urlstr,&url) == -1)
 		return -1;
 
+	if(mode != USER_FIELDS){
 	switch(method){
 		case GET:
 			if(snprintf(req,1024,format_str,"GET", 
@@ -1279,6 +1280,30 @@ int req_builder(int method, char *urlstr, char *format_str, char *req, int lengt
 			}
 			break;
 		default:
+	}
+
+	} else{
+		/*build custom request*/
+		char cpy[1024] = {0};
+		switch(method){
+		case GET:
+			if(snprintf(cpy,1024,CUSTOM_STR_REQUEST,"GET",
+							url.resource,
+							"HTTP/1.1") == -1){
+				fprintf(stderr,"(%s): cannot form GET request.",prog);
+				return -1;
+			}
+			int l = strlen(cpy);
+			if(snprintf(&cpy[l],1024-l,"%s",req) == -1){
+				fprintf(stderr,"(%s): cannot form GET request.",prog);
+				return -1;
+			}
+
+			memset(req,0,1024);
+			memcpy(req,cpy,strlen(cpy));
+			break;
+		default:
+		}
 	}
 	return 0;
 }

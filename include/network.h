@@ -54,6 +54,9 @@ extern struct Connection_data cds[MAX_CON_DAT_ARR];
 	"User-Agent: %s\r\n"\
 	"Accept: */*\r\n\r\n"
 
+#define CUSTOM_STR_REQUEST 	"%s %s %s\r\n"
+
+#define USER_FIELDS 1
 int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
@@ -68,7 +71,7 @@ int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req);
 int perform_http_request(char *URL, char *req, char **body);
 void stop_listening(int sock_fd);
 int parse_URL(char *URL, struct Url *url);
-int req_builder(int method, char *urlstr, char *format_str, char *req, int length);
+int req_builder(int method, char *urlstr, char *format_str, char *req, int length,int mode);
 void SSL_client_close();
 int  SSL_client_config();
 #endif
