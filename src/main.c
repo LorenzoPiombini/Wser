@@ -533,16 +533,38 @@ bad_request:
 client:
 
 	int option = 0;
+	int i;
 	while((option = getopt(argc,argv,"g:")) != -1){
 		switch(option){
 		case 'g':
-			/*create get request*/
+		{
 			char buff[1024] = {0};
-			if(req_builder(GET, optarg,F_STR_GET, buff,0) == -1)
+			int wrote = 0;
+			int personalized_req = 0;
+			if(argc > 3){
+				personalized_req = USER_FIELDS;	
+				for(i = 0; i < argc;i++){
+					if(strncmp(argv[i],"-h",2) == 0){
+						/*Grab the header field and build a new request*/
+						if(argv[i+1]){
+							int l = strlen(argv[i+1]);
+							if(snprintf(&buff[wrote],l+3,"%s\r\n",argv[i+1]) == -1)
+								return -1;
+							wrote += l+2;
+						}
+					}
+				}
+
+				if(snprintf(&buff[wrote],3,"%s","\r\n") == -1)
+					return -1;
+			}
+			/*create get request*/
+			if(req_builder(GET, optarg,F_STR_GET, buff,0,personalized_req) == -1)
 				return -1;
 			perform_http_request(optarg,buff,NULL);
 			SSL_client_close();
 			break;
+		}
 		default:
 			break;
 		}
