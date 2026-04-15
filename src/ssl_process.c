@@ -332,7 +332,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
 					if(cd[i].fd == 0 || cd[i].fd == -1){
 						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
+						cd[i].ssl = ssl;
 						cd[i].retry_handshake = SSL_accept;
 						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 							/*TODO*/
@@ -352,7 +352,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
 					if(cd[i].fd == 0 || cd[i].fd == -1){
 						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
+						cd[i].ssl = ssl;
 						cd[i].retry_handshake = NULL;
 						cd[i].retry_read = NULL;
 						cd[i].retry_write = NULL;
@@ -380,7 +380,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
 					if(cd[i].fd == 0 || cd[i].fd == -1){
 						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
+						cd[i].ssl = ssl;
 						cd[i].retry_read = SSL_peek_ex;
 						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 							/*TODO*/
@@ -402,7 +402,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					continue;
 				}
 
-				/*here we need to allocate memory*/		
+				/*TODO: here we need to allocate memory*/		
 			}else {
 				int i;
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
@@ -426,7 +426,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 		for(i = 0; i < MAX_CON_DAT_ARR;i++){
 			if(cd[i].fd == 0 || cd[i].fd == -1){
 				cd[i].fd = cli_sock;
-				cd[i].ssl = *ssl;
+				cd[i].ssl = ssl;
 				cd[i].retry_read = SSL_peek_ex;
 				if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 					/*TODO*/
@@ -464,7 +464,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					for(i = 0; i < MAX_CON_DAT_ARR;i++){
 						if(cd[i].fd == 0 || cd[i].fd == -1){
 							cd[i].fd = cli_sock;
-							cd[i].ssl = *ssl;
+							cd[i].ssl = ssl;
 							cd[i].retry_handshake = NULL;
 							cd[i].retry_read = NULL;
 							cd[i].retry_write = NULL;
@@ -498,7 +498,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					for(i = 0; i < MAX_CON_DAT_ARR;i++){
 						if(cd[i].fd == 0 || cd[i].fd == -1){
 							cd[i].fd = cli_sock;
-							cd[i].ssl = *ssl;
+							cd[i].ssl = ssl;
 							cd[i].retry_handshake = NULL;
 							cd[i].retry_read = NULL;
 							cd[i].retry_write = NULL;
@@ -602,7 +602,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					for(i = 0; i < MAX_CON_DAT_ARR;i++){
 						if(cd[i].fd == 0 || cd[i].fd == -1){
 							cd[i].fd = cli_sock;
-							cd[i].ssl = *ssl;
+							cd[i].ssl = ssl;
 							cd[i].retry_handshake = NULL;
 							cd[i].retry_read = NULL;
 							cd[i].retry_write = NULL;
@@ -619,7 +619,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			return WRITE_OK;
 		}
 		if(cd[i].close_notify){
-			if(SSL_shutdown(cd[i].ssl) != 1)
+			if(SSL_shutdown(*cd[i].ssl) != 1)
 				return SSL_CLOSE;
 			else 
 				return CLEAN_TEARDOWN;
