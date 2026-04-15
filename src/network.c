@@ -362,10 +362,8 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 			if(cd[i].fd != sock) continue;
 
 			cd[i].fd = -1;
-			if(cd[i].ssl){ 
-				SSL_free(*cd[i].ssl);
-				*cd[i].ssl = NULL;
-			}
+			if(cd[i].ssl)
+				SSL_free(cd[i].ssl);
 
 			cd[i].retry_read = NULL;
 			cd[i].retry_handshake = NULL;
@@ -383,10 +381,9 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 	for(i = 0; i < MAX_CON_DAT_ARR; i++){
 		
 		cd[i].fd = -1;
-		if(cd[i].ssl) {
-			SSL_free(*cd[i].ssl);
-			*cd[i].ssl = NULL;
-		}
+		if(cd[i].ssl)
+			SSL_free(cd[i].ssl);
+
 		cd[i].retry_read = NULL;
 		cd[i].retry_handshake = NULL;
 		cd[i].retry_write = NULL;
@@ -417,7 +414,6 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			}else{
 				fprintf(stderr,"the error happens when retrying handshake\n");
 				ERR_print_errors_fp(stderr);
-				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
 				cd[i].fd = -1;
 				cd[i].ssl = NULL;
@@ -437,7 +433,6 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			}else if (bread == BASE){
 				fprintf(stderr,"the issue is not enogh space in the buffer\n");
 				ERR_print_errors_fp(stderr);
-				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
 				cd[i].fd = -1;
 				cd[i].ssl = NULL;
@@ -447,7 +442,6 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			}else{
 				fprintf(stderr,"the error happens when reading SSL after handshake\n");
 				ERR_print_errors_fp(stderr);
-				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
 				cd[i].fd = -1;
 				cd[i].ssl = NULL;
@@ -470,7 +464,6 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 			}else{
 				fprintf(stderr,"the error happens when retrying read\n");
 				ERR_print_errors_fp(stderr);
-				SSL_free(cd[i].ssl);
 				remove_socket_from_monitor(cli_sock);
 				cd[i].fd = -1;
 				cd[i].ssl = NULL;

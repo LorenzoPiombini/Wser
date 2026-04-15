@@ -37,7 +37,7 @@ struct Url{
 
 struct Connection_data{
 	int fd;
-	SSL **ssl;
+	SSL *ssl;
     int (*retry_read)(SSL *,void *, size_t, size_t *);
 	int (*retry_handshake)(SSL *);
 	int (*retry_write)(SSL *,const void *,size_t,size_t *);
