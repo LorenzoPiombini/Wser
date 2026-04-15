@@ -171,7 +171,12 @@ int SSL_work_process(int data_sock)
 				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 
 				if(r == -1){
-					if(handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx) == CLEAN_TEARDOWN){
+					if((r =handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx)) == CLEAN_TEARDOWN){
+						clear_request(&req);
+						goto teardown;
+					}
+
+					if(r == -1){
 						clear_request(&req);
 						goto teardown;
 					}
@@ -244,8 +249,8 @@ loop:
 				}
 teardown:
 			remove_socket_from_monitor(cli_sock);
-			SSL_CTX_free(ctx);
 			clean_connecion_data(cds,-1);
+			SSL_CTX_free(ctx);
 			stop_monitor();
 			exit(0);
 		}else if(child == -1){
