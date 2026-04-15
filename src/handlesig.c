@@ -71,7 +71,7 @@ static void handler_ssl_process(int signo)
 	case SIGPIPE:
 		stop_listening(ssl_sock);
 		SSL_CTX_free(ctx);
-		clean_connecion_data(cds,-1);
+		/*clean_connecion_data(cds,-1);*/
 		break;
 	default:
 
