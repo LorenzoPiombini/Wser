@@ -234,7 +234,7 @@ loop:
 						remove_socket_from_monitor(cli_sock);
 						stop_monitor();
 						clear_request(&req);
-						clean_connecion_data(cds,-1);
+						clean_connecion_data(cds,events[i].data.fd);
 						SSL_CTX_free(ctx);
 						exit(1);
 						}
@@ -242,7 +242,7 @@ loop:
 				}
 teardown:
 			remove_socket_from_monitor(cli_sock);
-			clean_connecion_data(cds,-1);
+			clean_connecion_data(cds,events[i].data.fd);
 			SSL_CTX_free(ctx);
 			stop_monitor();
 			exit(0);
