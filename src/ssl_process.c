@@ -170,17 +170,8 @@ int SSL_work_process(int data_sock)
 				struct Request req = {0};
 				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 
-				if(r == -1){
-					if((r =handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx)) == CLEAN_TEARDOWN){
-						clear_request(&req);
-						goto teardown;
-					}
-
-					if(r == -1){
-						clear_request(&req);
-						goto teardown;
-					}
-				}
+				if(r == -1)
+					goto teardown;
 			
 				if(r == 0 || r == 2){
 					if(process_request(&req,cli_sock) == 1){
@@ -213,6 +204,7 @@ loop:
 						case HANDSHAKE:
 						{		
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+
 							if(r == 0 || r == 2){
 								if(process_request(&req,events[i].data.fd) == 1){
 									clear_request(&req);
@@ -235,6 +227,7 @@ loop:
 						}
 						case CLEAN_TEARDOWN:
 							goto teardown;
+						case SSL_CLOSE:
 						case SSL_SET_E:
 						case SSL_HD_F:
 						default:
@@ -623,6 +616,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			}
 			return WRITE_OK;
 		}
+		
 		if(cd[i].close_notify){
 			if(SSL_shutdown(cd[i].ssl) != 1)
 				return SSL_CLOSE;
