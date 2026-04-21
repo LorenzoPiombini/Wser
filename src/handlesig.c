@@ -16,6 +16,7 @@ pid_t ssl_proc = -1;
 
 static void handler_main_process(int signo);
 static void handler_ssl_process(int signo);
+static void handler_db_process(int signo);
 
 int handle_sig_main_process()
 {
@@ -63,6 +64,30 @@ int handle_sig_ssl_process()
 	return 0;
 }
 
+int handle_sig_db_process()
+{
+	/*set up signal handler*/
+	struct sigaction act;
+	memset(&act,0,sizeof(struct sigaction));
+
+	struct sigaction act_child_process;
+	memset(&act_child_process,0,sizeof(struct sigaction));
+	act.sa_handler = &handler_db_process;
+	act_child_process.sa_handler = SIG_IGN;
+	act_child_process.sa_flags = SA_NOCLDWAIT;
+	
+	if(/*sigaction(SIGSEGV, &act, NULL) == -1 ||*/
+			sigaction(SIGINT,&act,NULL) == -1 || 
+			sigaction(SIGPIPE,&act,NULL) == -1 ||
+			sigaction(SIGTERM,&act,NULL) == -1 ||
+			sigaction(SIGCHLD,&act_child_process,NULL) == -1){
+		fprintf(stderr,"(%s): cannot handle the signal.\n",prog);
+		return -1;
+	}
+
+	return 0;
+}
+
 static void handler_ssl_process(int signo)
 {
 	switch(signo){
@@ -106,4 +131,19 @@ static void handler_main_process(int signo)
 		break;
 	}
 	exit(-1);
+}
+
+static void handler_db_process(int signo)
+{
+	switch(signo){
+	case SIGINT:
+	case SIGTERM:
+	case SIGPIPE:
+		/*TODO: undersand what action you have to take for this*/
+		break;
+	default:
+
+	}
+	exit(0);
+
 }

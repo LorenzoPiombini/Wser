@@ -11,5 +11,6 @@ extern pid_t db_proc;
 
 int handle_sig_main_process();
 int handle_sig_ssl_process();
+int handle_sig_db_process();
 
 #endif
