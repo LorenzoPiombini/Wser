@@ -16,6 +16,12 @@
 #include "response.h"
 #include "monitor.h"
 
+
+#ifdef OWN_DB
+#include "work_process.h" /* database handler*/
+#endif
+
+
 struct p_info{
 	pid_t p;
 	time_t t;
@@ -27,7 +33,7 @@ struct p_info proc_list[100] = {0};
 #define TIME_OUT 300 /*5 minutes*/
 #define EIGHTkib_limit 8192
 
-static char prog[] = "ssl process";
+static char prog[] = "wser";
 static int process_request(struct Request *req, int cli_sock);
 static int handle_ssl_steps(struct Connection_data *cd, 
 							int cli_sock,
@@ -47,21 +53,28 @@ int SSL_work_process(int data_sock)
 
 	if(work_proc_pid == -1){
 		/*Parent*/
-		fprintf(stderr,"architecture cannot be implemented");
-		stop_listening(con);
+		fprintf(stderr,"(%s): architecture cannot be implemented.\n",prog);
 		return -1;
 	}
 
 	if(work_proc_pid == 0){
 		/* start DB handle process */	
-		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) exit(1);
+		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
+			fprintf(stderr,"cannot start Data base.\n");
+			kill(getppid(),SIGINT);
+		 	exit(-1);
+		}
+
+		
+		if(handle_sig_db_process() == -1)
+			return -1;
 
 		work_process(work_proc_data_sock);
-		stop_listening(con);
 		return -1;
 	}
 	
 	db_proc = work_proc_pid;
+
 #endif /* OWN_DB -make flag*/
 
 	if(start_monitor(data_sock) == -1){

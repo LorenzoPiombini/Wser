@@ -78,7 +78,8 @@ int main(int argc, char **argv)
 
 			/*start signal handle for this process*/
 			ssl_sock = data_sock;
-			if(handle_sig_ssl_process() == -1) exit(1);
+			if(handle_sig_ssl_process() == -1)
+				exit(1);
 
 			SSL_work_process(data_sock);
 			stop_listening(con);
