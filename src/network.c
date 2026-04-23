@@ -70,12 +70,12 @@ int init_SSL(SSL_CTX **ctx){
 
 	/*apply the selction options */
 	SSL_CTX_set_options(*ctx, opts);
-	if(SSL_CTX_use_certificate_chain_file(*ctx,"/path/to/your/certificate") <= 0 ) {
+	if(SSL_CTX_use_certificate_chain_file(*ctx,"/home/lpiombini/local_cert/server.crt") <= 0 ) {
 		fprintf(stderr,"error use certificate.\n");
 		return -1;
 	}
 
-	if(SSL_CTX_use_PrivateKey_file(*ctx, "path/to/your/private.key",SSL_FILETYPE_PEM) <= 0) {
+	if(SSL_CTX_use_PrivateKey_file(*ctx, "/home/lpiombini/local_cert/server.key",SSL_FILETYPE_PEM) <= 0) {
 		fprintf(stderr,"error use privatekey ");
 		return -1;
 	}
@@ -143,24 +143,24 @@ int connect_UNIX_socket(int opt, char *sock_path)
        
        /*bind to a file_path*/
        address_socket_family.sun_family = AF_UNIX;
-	   strncpy(address_socket_family.sun_path,sock_path,strlen(sock_path)+1);  
+       strncpy(address_socket_family.sun_path,sock_path,strlen(sock_path)+1);  
 
-	   if(opt == SOCK_NONBLOCK){
-		   if(fcntl(sock_un,F_SETFD,O_NONBLOCK) == -1){
-			   return -1;
-		   }
-	   }
+       if(opt == SOCK_NONBLOCK){
+	       if(fcntl(sock_un,F_SETFD,O_NONBLOCK) == -1){
+		       return -1;
+	       }
+       }
 
-	   errno = 0;
-	   int result = connect(sock_un,(const struct sockaddr*) &address_socket_family,sizeof(address_socket_family));
-	   if(result == -1) {
-		   if(errno == ECONNREFUSED){
-			   fprintf(stderr," !!!!! you need a bigger que for UNIX_SOCK !!!!!!\n");
-		   }
-		   return -1;
-	   }
+       errno = 0;
+       int result = connect(sock_un,(const struct sockaddr*) &address_socket_family,sizeof(address_socket_family));
+       if(result == -1) {
+	       if(errno == ECONNREFUSED){
+		       fprintf(stderr," !!!!! you need a bigger que for UNIX_SOCK !!!!!!\n");
+	       }
+	       return -1;
+       }
 
-	   return sock_un;
+       return sock_un;
 
 }
 
@@ -181,7 +181,8 @@ int listen_UNIX_socket(int opt, char *sock_path)
 			return -1;
 		}
 	}
-	unlink(INT_PROC_SOCK_SSL);
+
+	unlink(sock_path);
 	int result = bind(sock_un,(const struct sockaddr *) &address_socket_family,sizeof(address_socket_family));
 	if(result == -1) return -1;
 
