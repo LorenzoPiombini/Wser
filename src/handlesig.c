@@ -14,6 +14,8 @@ int ssl_sock = -1;
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;
 
+
+int ssl_freed = 0;
 static void handler_main_process(int signo);
 static void handler_ssl_process(int signo);
 static void handler_db_process(int signo);
@@ -94,15 +96,14 @@ static void handler_ssl_process(int signo)
 	case SIGINT:
 	case SIGTERM:
 	case SIGPIPE:
+		if(db_proc != -1)
+			kill(db_proc,SIGTERM);
 		stop_listening(ssl_sock);
-		SSL_CTX_free(ctx);
-		/*clean_connecion_data(cds,-1);*/
 		break;
 	default:
 
 	}
 	exit(0);
-
 }
 
 static void handler_main_process(int signo)
@@ -114,6 +115,7 @@ static void handler_main_process(int signo)
 	case SIGPIPE:
 		stop_monitor();	
 		stop_listening(hdl_sock);
+		SSL_CTX_free(ctx);
 		if(ssl_proc != -1) 
 			kill(ssl_proc,SIGTERM);
 
