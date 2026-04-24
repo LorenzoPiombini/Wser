@@ -16,12 +16,6 @@
 #include "response.h"
 #include "monitor.h"
 
-
-#ifdef OWN_DB
-#include "work_process.h" /* database handler*/
-#endif
-
-
 struct p_info{
 	pid_t p;
 	time_t t;
@@ -34,7 +28,21 @@ struct p_info proc_list[100] = {0};
 #define EIGHTkib_limit 8192
 
 static char prog[] = "wser";
+
+#if OWN_DB
+
+#include "work_process.h" /* database handler*/
+#include "end_points.h"
+#include "lua_start.h"
+#include "ctype.h"
+
+static int process_request(struct Request *req, int cli_sock, int work_proc_data_sock);
+static int load_resource_db(struct Request *req, struct Content *cont,int data_sock);
+static char *convert_json(char* body);
+#else
 static int process_request(struct Request *req, int cli_sock);
+#endif
+
 static int handle_ssl_steps(struct Connection_data *cd, 
 							int cli_sock,
 							struct Request *req,
@@ -47,7 +55,6 @@ int SSL_work_process(int data_sock)
 
 #ifdef OWN_DB
 	int work_proc_data_sock = -1;
-	int parent_data_sock = -1;
 
 	pid_t work_proc_pid = fork();
 
@@ -58,6 +65,7 @@ int SSL_work_process(int data_sock)
 	}
 
 	if(work_proc_pid == 0){
+		/*CHILD*/
 		/* start DB handle process */	
 		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
 			fprintf(stderr,"cannot start Data base.\n");
@@ -66,6 +74,7 @@ int SSL_work_process(int data_sock)
 		}
 
 		
+		db_proc = work_proc_pid;
 		if(handle_sig_db_process() == -1)
 			return -1;
 
@@ -73,7 +82,6 @@ int SSL_work_process(int data_sock)
 		return -1;
 	}
 	
-	db_proc = work_proc_pid;
 
 #endif /* OWN_DB -make flag*/
 
@@ -187,7 +195,11 @@ int SSL_work_process(int data_sock)
 					goto teardown;
 			
 				if(r == 0 || r == 2){
+#ifdef OWN_DB
+					if(process_request(&req,cli_sock, connect_UNIX_socket(-1,INT_PROC_SOCK_DB)) == 1){
+#else 
 					if(process_request(&req,cli_sock) == 1){
+#endif
 						clear_request(&req);
 						goto loop;
 					}
@@ -217,9 +229,12 @@ loop:
 						case HANDSHAKE:
 						{		
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
-
 							if(r == 0 || r == 2){
+#ifdef OWN_DB
+								if(process_request(&req,events[i].data.fd,connect_UNIX_socket(-1,INT_PROC_SOCK_DB)) == 1){
+#else 
 								if(process_request(&req,events[i].data.fd) == 1){
+#endif
 									clear_request(&req);
 									continue;
 								}
@@ -232,7 +247,11 @@ loop:
 						case 0:
 						{
 							/*process request*/
+#ifdef OWN_DB
+							if(process_request(&req,events[i].data.fd,connect_UNIX_socket(-1,INT_PROC_SOCK_DB)) == 1){
+#else 
 							if(process_request(&req,events[i].data.fd) == 1){
+#endif
 								clear_request(&req);
 								continue;
 							}
@@ -249,6 +268,7 @@ loop:
 						clear_request(&req);
 						clean_connecion_data(cds,events[i].data.fd);
 						SSL_CTX_free(ctx);
+						ctx = NULL;
 						exit(1);
 						}
 					}
@@ -257,6 +277,7 @@ teardown:
 			remove_socket_from_monitor(cli_sock);
 			clean_connecion_data(cds,events[i].data.fd);
 			SSL_CTX_free(ctx);
+			ctx = NULL;
 			stop_monitor();
 			exit(0);
 		}else if(child == -1){
@@ -287,9 +308,9 @@ teardown:
 
 				errno = 0;
 				if(kill(proc_list[i].p,0) == -1 && errno == ESRCH){
-						proc_list[i].p = -1;
-						proc_list[i].t = 0;
-						continue;
+					proc_list[i].p = -1;
+					proc_list[i].t = 0;
+					continue;
 				}
 
 				if(proc_list[i].t > 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
@@ -304,6 +325,7 @@ teardown:
 		}
 	}
 	SSL_CTX_free(ctx);
+	ctx = NULL;
 	clean_connecion_data(cds,-1);
 	return 0;
 }
@@ -641,14 +663,86 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 }
 
+#if OWN_DB
+static int process_request(struct Request *req, int cli_sock, int work_proc_data_sock)
+#else
 static int process_request(struct Request *req, int cli_sock)
+#endif
 {
 	switch(req->method){
-		case GET:
-		{
-			struct Response res = {0};
-			struct Content cont = {0};
-			/* Load content */	
+	case GET:
+	{
+		struct Response res = {0};
+		struct Content cont = {0};
+		/* Load content */	
+		/*check if the req->resource is an end point for the db or a website page*/
+#if OWN_DB
+		if(!strstr(req->resource,".html")
+			&& !strstr(req->resource,".css")
+			&& !strstr(req->resource,".js")){
+		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
+#endif
+			if(load_resource(req->resource,&cont) == -1){
+				/*send not found response*/
+				if(generate_response(&res,404,&cont,req) == -1) break;
+
+				int w = 0;
+				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+				if(w == SSL_WRITE_E){
+					clear_response(&res);
+					clear_content(&cont);
+					return 1;
+				}
+				clear_response(&res);
+				clear_content(&cont);
+				return 0;
+			}
+
+			/*send 200 response*/
+			if(generate_response(&res,OK,&cont,req) == -1) {
+				clear_content(&cont);
+				clear_response(&res);
+				return 0;
+			}
+
+			clear_content(&cont);
+			int w = 0;
+			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+				clear_response(&res);
+				return 0;
+			}
+
+			if(w == SSL_WRITE_E){
+				clear_response(&res);
+				return 1;
+			}
+			clear_response(&res);
+			return 0;
+#if OWN_DB
+		}
+		/*send 200 response*/
+		if(generate_response(&res,201,&cont,req) == -1) {
+			clear_content(&cont);
+			clear_response(&res);
+			return 0;
+		}
+
+		clear_content(&cont);
+		int w = 0;
+		if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+			clear_response(&res);
+			return 0;
+		}
+
+		if(w == SSL_WRITE_E){
+			clear_response(&res);
+			return 1;
+		}
+		clear_response(&res);
+		return 0;
+
+		} else{
+
 			if(load_resource(req->resource,&cont) == -1){
 				/*send not found response*/
 				if(generate_response(&res,404,&cont,req) == -1) break;
@@ -686,55 +780,16 @@ static int process_request(struct Request *req, int cli_sock)
 			clear_response(&res);
 			return 0;
 		}
-		case OPTIONS:
-		{
-			struct Response res = {0};
-			size_t s = strlen(req->origin);
-			if(s != strlen(ORIGIN_DEF) 
-					|| strncmp(req->origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0) {
-				/*send bad request*/
-				/*send a bed request response*/
-				if(generate_response(&res,400,NULL,req) == -1) {
-					clear_response(&res);
-					return -1;
-				}
-
-				int w = 0;
-				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
-					clear_response(&res);
-					return -1;
-				}
-
-				if(w == SSL_WRITE_E){
-					clear_response(&res);
-					return 1;
-				}
-				clear_response(&res);
-				return 0;
-			}
-
-			/*send a response to the options request*/
-			if(generate_response(&res,200,NULL,req) == -1) break;
-
-			clear_request(req);
-			int w = 0;
-
-			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
-				clear_response(&res);
-				return -1;
-			}
-
-			if(w == SSL_WRITE_E){
-				clear_response(&res);
-				return 1;
-			}
-
-			clear_response(&res);
-			return 0;
-		}
-		case BAD_REQ:
-		{
-			struct Response res = {0};
+		return 0;
+#endif
+	}
+	case OPTIONS:
+	{
+		struct Response res = {0};
+		size_t s = strlen(req->origin);
+		if(s != strlen(ORIGIN_DEF) 
+				|| strncmp(req->origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0) {
+			/*send bad request*/
 			/*send a bed request response*/
 			if(generate_response(&res,400,NULL,req) == -1) {
 				clear_response(&res);
@@ -754,12 +809,523 @@ static int process_request(struct Request *req, int cli_sock)
 			clear_response(&res);
 			return 0;
 		}
-		case DELETE:
-		case POST:
-		case PUT:
-		default:
+
+		/*send a response to the options request*/
+		if(generate_response(&res,200,NULL,req) == -1) break;
+
+		clear_request(req);
+		int w = 0;
+
+		if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+			clear_response(&res);
+			return -1;
+		}
+
+		if(w == SSL_WRITE_E){
+			clear_response(&res);
+			return 1;
+		}
+
+		clear_response(&res);
+		return 0;
+	}
+	case BAD_REQ:
+	{
+		struct Response res = {0};
+		/*send a bed request response*/
+		if(generate_response(&res,400,NULL,req) == -1) {
+			clear_response(&res);
+			return -1;
+		}
+
+		int w = 0;
+		if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+			clear_response(&res);
+			return -1;
+		}
+
+		if(w == SSL_WRITE_E){
+			clear_response(&res);
+			return 1;
+		}
+		clear_response(&res);
+		return 0;
+	}
+	case POST:
+	{
+#if OWN_DB
+		struct Response res = {0};
+		struct Content cont = {0};
+
+		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
+			if(generate_response(&res,404,&cont,req) == -1) break;
+
+			int w = 0;
+			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
+			if(w == SSL_WRITE_E){
+				clear_response(&res);
+				clear_content(&cont);
+				return 1;
+			}
+			clear_response(&res);
+			clear_content(&cont);
 			return 0;
+		}
+
+		/*send 200 response*/
+		if(generate_response(&res,OK,&cont,req) == -1) {
+			clear_content(&cont);
+			clear_response(&res);
+			return 0;
+		}
+
+		clear_content(&cont);
+		int w = 0;
+		if((w = write_cli_SSL(cli_sock,&res,cds)) == -1){
+			clear_response(&res);
+			return 0;
+		}
+
+		if(w == SSL_WRITE_E){
+			clear_response(&res);
+			return 1;
+		}
+		clear_response(&res);
+		return 0;
+#endif
+
+	}
+	case PUT:
+	case DELETE:
+	default:
+	return 0;
 	}
 	return -1;
 }
+
+/*this will change depends on the bussines*/
+#if OWN_DB
+static int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
+{
+	int resource = map_end_point(req->resource); 
+	if(resource == -1) return -1;
+
+	switch(req->method){
+	case POST:
+	{
+		switch(resource){
+		case NEW_CUST:
+		{
+			/*convert json in db_string*/
+			char *db = 0x0;
+			if(req->req_body.d_cont)
+				db = convert_json(req->req_body.d_cont);
+			else
+				db = convert_json(req->req_body.content);
+
+			assert(db != NULL);
+			if(db[0] == '\0') return -1;
+
+			/*2 stands for  1 '\0', and 1 for the operation*/
+			size_t size_buffer = strlen(db) + 2;
+			char *buffer = (char *) malloc(size_buffer);
+
+			buffer[0] = resource + '0';
+			strncpy(&buffer[1],db,size_buffer-1);
+
+			/*send data to the worker process*/
+			if(write(data_sock,buffer,strlen(buffer)) == -1) return -1;
+
+			/*TODO: refactor the socket comunication so that you read once with 
+			 * the size of the next message then you allocate a buffer accordangly so 
+			 * you can be eficient*/
+			char read_buffer[MAX_CONT_SZ];
+			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1) return -1;
+
+			if(read_buffer[0] == '\0') return -1;
+
+			if(snprintf(cont->cnt_st,1024,"%s",read_buffer) == -1){
+				/*log error*/
+				return -1;
+			}
+			cont->size = strlen(cont->cnt_st);
+			return 0;
+		}
+		case NEW_SORD:
+		case UPDATE_SORD:
+		{
+
+			/*save the sales order in the db */
+			char *db = NULL;
+			if(req->req_body.d_cont)
+				db = convert_json(req->req_body.d_cont);
+			else
+				db = convert_json(req->req_body.content);
+
+			assert(db != NULL);
+
+			if(db[0] == '\0') return -1;
+
+			/*process the string and separate the two file sintax*/
+
+			char *lines_start = strstr(db,"sales_orders_lines");
+			if(!lines_start) return -1;
+
+
+			size_t lines_len = strlen((lines_start + strlen("sales_orders_lines:")));
+			char orders_line[lines_len+1];
+			memset(orders_line,0,lines_len+1);
+			strncpy(orders_line,lines_start + strlen("sales_orders_lines:"),lines_len);
+
+			char orders_head[((lines_start - db) - strlen("sales_orders_head:")) + 1];
+			memset(orders_head,0,((lines_start - db) -strlen("sales_orders_head:")) +1);
+			strncpy(orders_head,&db[strlen("sales_orders_head:")],((lines_start - db)-strlen("sales_orders_head:")));
+
+
+			size_t size_buffer = 0;
+			char *buffer = NULL;
+			if(resource == NEW_SORD){
+			/* 3 is 
+			 *  1 for '^'
+			 *  1 for instruction byte
+			 *  1 for '\0';
+			 * */
+				size_buffer = sizeof(orders_head) + sizeof(orders_line)+3;
+				buffer = (char*)malloc(size_buffer);
+				if(!buffer) return -1;
+
+				memset(buffer,0,size_buffer);
+
+				/*parse data to buffer*/
+				buffer[0] = resource + '0';
+				strncpy(&buffer[1],orders_head,strlen(orders_head));
+				strncpy(&buffer[1+strlen(orders_head)],"^",2);
+				strncpy(&buffer[1+strlen(orders_head)+1],orders_line,strlen(orders_line));
+			}else{
+				/*parse a buffer for the update operation*/
+				char *p = req->resource;
+				p += strlen(UPDATE_ORDERS) + 1;
+
+			/* 4 is 
+			 *  2 for '^'
+			 *  1 for instruction byte
+			 *  1 for '\0';
+			 * */
+				
+				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ strlen(p) +4;
+				buffer = (char*)malloc(size_buffer);
+				if(!buffer) return -1;
+
+				memset(buffer,0,size_buffer);
+
+				buffer[0] = resource + '0';
+				strncpy(&buffer[1],p,strlen(p));
+				int position = 1+strlen(p);
+				strncpy(&buffer[position],"^",2);
+				position += 1;
+				strncpy(&buffer[position],orders_head,strlen(orders_head));
+				position += strlen(orders_head);
+				strncpy(&buffer[position],"^",2);
+				position += 1;
+				strncpy(&buffer[position],orders_line,strlen(orders_line));
+			}
+
+			/*send data to the worker process*/
+			if(write(data_sock,buffer,strlen(buffer)) == -1){
+				free(buffer);
+				return -1;
+			}
+
+			char read_buffer[MAX_CONT_SZ];
+			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){ 
+				free(buffer);
+				return -1;
+			}
+
+			if(read_buffer[0] == '\0') {
+				free(buffer);
+				return -1;
+			}
+
+			if(snprintf(cont->cnt_st,1024,"%s",read_buffer) == -1){
+				/*log error*/
+				free(buffer);
+				return -1;
+			}
+			cont->size = strlen(cont->cnt_st);
+			free(buffer);
+			return 0;
+		}
+		case S_ORD:
+		{
+			break;
+		}
+		default:
+		break;
+		}
+		break;
+	}
+	case GET:
+	{
+		switch(resource){
+		case CUSTOMER_GET:
+		{
+
+			/*get the Key from the request*/
+			char *p = req->resource;
+			p += strlen(CUSTOMERS) + 1;
+
+			size_t key_size = strlen(p);
+			char buffer[key_size+2];
+			memset(buffer,0,key_size+2);
+
+			buffer[0] = resource + '0';
+			strncpy(&buffer[1],p,key_size);
+
+			if(write(data_sock,buffer,sizeof(buffer)) == -1){
+				return -1;
+			}
+
+			char *read_buffer = (char*)malloc(EIGHTkib_limit*4);
+			if(!read_buffer) return -1;
+
+			/*read data from worker proc*/
+
+			memset(read_buffer,0,EIGHTkib_limit * 4);
+			ssize_t bread = 0;
+			if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){ 
+				free(read_buffer);
+				return -1;
+			}
+
+			if(bread == ((EIGHTkib_limit * 4) - 1)){
+				free(read_buffer);
+				fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
+				return -1;
+			}
+
+			if(read_buffer[0] == '\0'){
+				free(read_buffer);
+				return -1;
+			}
+
+			size_t mem_size = strlen(read_buffer) + 1;
+			cont->cnt_dy = (char*) malloc(mem_size);
+			if(!cont->cnt_dy) {
+				free(read_buffer);
+				return -1;
+			}
+
+			cont->size = mem_size;
+			if(snprintf(cont->cnt_dy,strlen(read_buffer)+1,"%s",read_buffer) == -1) {
+				free(read_buffer);
+				return -1;
+			}
+			free(read_buffer);
+			return 0;
+		}
+		case CUSTOMER_GET_ALL:
+		case S_ORD:
+		{		
+			/*send data to the worker process*/
+			char buffer[2];
+			memset(buffer,0,2);
+			if(resource == S_ORD)
+				buffer[0] = S_ORD + '0';
+			else
+				buffer[0] = CUSTOMER_GET_ALL + '0';
+
+			if(write(data_sock,buffer,sizeof(buffer)) == -1){
+				return -1;
+			}
+
+			char *read_buffer = (char*)malloc(EIGHTkib_limit * 4);
+			if(!read_buffer) return -1;
+
+			/*read data from worker proc*/
+
+			memset(read_buffer,0,EIGHTkib_limit * 4);
+			ssize_t bread = 0;
+			if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){
+				free(read_buffer);
+				return -1;
+			}
+			
+
+			if(bread == ((EIGHTkib_limit * 4) - 1)){
+				free(read_buffer);
+				fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
+				return -1;
+			}
+
+			if(read_buffer[0] == '\0'){ 
+				free(read_buffer);
+				return -1;
+			}
+
+			size_t mem_size = strlen(read_buffer) + 1;
+			cont->cnt_dy = (char*) malloc(mem_size);
+			if(!cont->cnt_dy) {
+				free(read_buffer);
+				return -1;
+			}
+
+			cont->size = mem_size - 1;
+			if(snprintf(cont->cnt_dy,strlen(read_buffer)+1,"%s",read_buffer) == -1) {
+				free(cont->cnt_dy);
+				free(read_buffer);
+				cont->cnt_dy = NULL;
+				return -1;
+			}
+
+			free(read_buffer);
+			return 0;
+		}
+		case S_ORD_GET:
+		{
+			char *p = req->resource;
+			p += strlen(SALES_ORDERS) + 1;
+
+			size_t key_size = strlen(p);
+			char buffer[key_size+2];
+			memset(buffer,0,key_size+2);
+
+			buffer[0] = resource + '0';
+			strncpy(&buffer[1],p,key_size);
+
+			if(write(data_sock,buffer,strlen(buffer)) == -1) return -1;
+
+			char *read_buffer = (char*) malloc(EIGHTkib_limit);
+			if(!read_buffer) return -1;
+
+			ssize_t bread = 0;
+			if((bread = read(data_sock,read_buffer,EIGHTkib_limit) == -1)) {
+				free(read_buffer);
+				return -1;
+			}
+
+			if(bread == EIGHTkib_limit){
+				/*code refactor*/					
+				free(read_buffer);
+				fprintf(stderr,"code refactor needed %s:%d\n",__FILE__,__LINE__-4);
+				return -1;
+			}
+
+			strncpy(cont->cnt_st,read_buffer,strlen(read_buffer));		
+			cont->size = strlen(read_buffer);
+			free(read_buffer);
+			return 0;
+		}
+		default:
+		break;
+		}
+		break;
+		}
+		default:
+		break;	
+	}
+	return 0;
+}	
+
+static char *convert_json(char* body)
+{
+	static char db_entry[1024] = {0};
+	memset(db_entry,0,1024);
+	int array = 0;
+	int n_array = 0;
+	int n_obj_arr = 0;
+	int n_obj = 0;
+	int string = 0;
+	int i = 0;
+	for(char *p = &body[1]; *p != '\0'; p++){
+		if(*p == ']'){
+			if(n_array) 
+				n_array = 0;
+			else
+				array = 0;
+
+			continue;
+		}
+
+		if(*p == ',' && !string) {
+			db_entry[i] = ':';
+			i++;
+			continue;
+		}
+
+		if(*p == '}'){
+			if(n_obj_arr){
+				n_obj_arr = 0;
+				db_entry[i] = ']';
+				i++;
+				/* 
+				 * the following if statment check if we have more
+				 * than one object in the array
+				 * and format the db_entry accordingly
+				 * */
+				if(*(p + 1) == ','){
+					db_entry[i] = ',';
+					i++;
+					p++;
+				}
+			}else if (n_obj){
+				n_obj = 0;
+			}
+			continue;
+		}
+
+		if(*p == '{'){
+			if(array){
+				n_obj_arr = 1;
+				/*file as a field syntax*/
+				db_entry[i] = '[';
+				i++;
+				db_entry[i] = 'w';
+				i++;
+				db_entry[i] = '|';
+				i++;
+			}else{	
+				n_obj = 1;
+			}
+		}
+
+		if(*p == '['){
+			if(array)
+				n_array = 1;
+			else
+				array = 1;
+			continue;
+		}
+
+		if(*p == ':' && string == 0){
+			db_entry[i] = *p;
+			i++;
+			continue;
+		}
+
+		if(*p == ' ' && !string) continue;
+		if(*p == '"') {
+			if(string)
+				string = 0;
+			else
+				string = 1;
+			continue;
+		}
+
+		if(string){
+			db_entry[i] = *p;
+			i++;
+			continue;
+		}	
+
+		if(isdigit(*p)){
+			db_entry[i] = *p;
+			i++;
+			continue;
+		}
+	}
+
+	return &db_entry[0];
+}
+#endif
 
