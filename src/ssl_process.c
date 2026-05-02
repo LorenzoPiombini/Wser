@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <sys/socket.h>
@@ -43,6 +44,7 @@ static char *convert_json(char* body);
 static int process_request(struct Request *req, int cli_sock);
 #endif
 
+static int check_URL_encoding(char *p);
 static int handle_ssl_steps(struct Connection_data *cd, 
 							int cli_sock,
 							struct Request *req,
@@ -74,14 +76,16 @@ int SSL_work_process(int data_sock)
 		}
 
 		
-		db_proc = work_proc_pid;
+		db_sock = work_proc_data_sock;
 		if(handle_sig_db_process() == -1)
-			return -1;
+			exit(1);
 
 		work_process(work_proc_data_sock);
 		return -1;
 	}
 	
+	/*parent*/
+	db_proc = work_proc_pid;
 
 #endif /* OWN_DB -make flag*/
 
@@ -182,6 +186,9 @@ int SSL_work_process(int data_sock)
 				/*free resources that the child does not need*/
 				stop_listening(sock);
 				stop_listening(data_sock);
+#if OWN_DB
+				int db_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_DB);
+#endif
 
 				if(start_monitor(cli_sock) == -1) {
 					fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
@@ -196,7 +203,7 @@ int SSL_work_process(int data_sock)
 			
 				if(r == 0 || r == 2){
 #ifdef OWN_DB
-					if(process_request(&req,cli_sock, connect_UNIX_socket(-1,INT_PROC_SOCK_DB)) == 1){
+					if(process_request(&req,cli_sock, db_sock) == 1){
 #else 
 					if(process_request(&req,cli_sock) == 1){
 #endif
@@ -231,7 +238,7 @@ loop:
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 #ifdef OWN_DB
-								if(process_request(&req,events[i].data.fd,connect_UNIX_socket(-1,INT_PROC_SOCK_DB)) == 1){
+								if(process_request(&req,events[i].data.fd,db_sock)== 1){
 #else 
 								if(process_request(&req,events[i].data.fd) == 1){
 #endif
@@ -248,7 +255,7 @@ loop:
 						{
 							/*process request*/
 #ifdef OWN_DB
-							if(process_request(&req,events[i].data.fd,connect_UNIX_socket(-1,INT_PROC_SOCK_DB)) == 1){
+							if(process_request(&req,events[i].data.fd,db_sock) == 1){
 #else 
 							if(process_request(&req,events[i].data.fd) == 1){
 #endif
@@ -268,6 +275,7 @@ loop:
 						clear_request(&req);
 						clean_connecion_data(cds,events[i].data.fd);
 						SSL_CTX_free(ctx);
+						close(db_sock);
 						ctx = NULL;
 						exit(1);
 						}
@@ -279,6 +287,7 @@ teardown:
 			SSL_CTX_free(ctx);
 			ctx = NULL;
 			stop_monitor();
+			close(db_sock);
 			exit(0);
 		}else if(child == -1){
 			/*PARENT*/
@@ -934,21 +943,32 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			strncpy(&buffer[1],db,size_buffer-1);
 
 			/*send data to the worker process*/
-			if(write(data_sock,buffer,strlen(buffer)) == -1) return -1;
+			if(write(data_sock,buffer,strlen(buffer)) == -1){ 
+				free(buffer);
+				return -1;
+			}
 
 			/*TODO: refactor the socket comunication so that you read once with 
 			 * the size of the next message then you allocate a buffer accordangly so 
 			 * you can be eficient*/
 			char read_buffer[MAX_CONT_SZ];
-			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1) return -1;
+			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){
+				free(buffer);
+				return -1;
+			}
 
-			if(read_buffer[0] == '\0') return -1;
+			if(read_buffer[0] == '\0'){
+				free(buffer);
+				return -1;
+			}
 
 			if(snprintf(cont->cnt_st,1024,"%s",read_buffer) == -1){
 				/*log error*/
+				free(buffer);
 				return -1;
 			}
 			cont->size = strlen(cont->cnt_st);
+			free(buffer);
 			return 0;
 		}
 		case NEW_SORD:
@@ -1075,6 +1095,13 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			char *p = req->resource;
 			p += strlen(CUSTOMERS) + 1;
 
+			/*
+			 * check for URL encoding 
+			 * if the %20 is found, the function will 
+			 * change the string in place
+			 * */
+			check_URL_encoding(p);
+
 			size_t key_size = strlen(p);
 			char buffer[key_size+2];
 			memset(buffer,0,key_size+2);
@@ -1116,8 +1143,8 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 				return -1;
 			}
 
-			cont->size = mem_size;
-			if(snprintf(cont->cnt_dy,strlen(read_buffer)+1,"%s",read_buffer) == -1) {
+			cont->size = mem_size - 1;
+			if(snprintf(cont->cnt_dy,mem_size,"%s",read_buffer) == -1) {
 				free(read_buffer);
 				return -1;
 			}
@@ -1328,4 +1355,28 @@ static char *convert_json(char* body)
 	return &db_entry[0];
 }
 #endif
+static int check_URL_encoding(char *p)
+{
+	int sz = (int)strlen(p);
+	char clean[sz];
+	memset(clean,0,sz);
+	int copied = 0;
+
+	char *s = p;
+	char *space = NULL;
+	while((space = strstr(s,"%20"))){
+		*space++ = ' ';
+		int where = space - s; 	
+		strncpy(&clean[copied],s,where);
+		copied += where;
+		space += 2;
+		s = space;
+	}
+	
+	strncpy(&clean[copied],s,strlen(s));
+	strncpy(p,clean,strlen(clean));
+	p[strlen(clean)] = '\0';
+	return 0;
+}
+
 

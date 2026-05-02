@@ -16,9 +16,7 @@
 #include "ssl_process.h"
 
 
-
 char prog[] = "wser";
-
 
 int main(int argc, char **argv)
 {	
@@ -155,7 +153,7 @@ int main(int argc, char **argv)
 						continue;
 					}
 					stop_listening(cli_sock);
-					stop_listening(data_sock);
+					close(data_sock);
 					continue;
 				}else{
 					if((r = wait_for_connections(con,&cli_sock,&req)) == -1) break;
@@ -528,7 +526,10 @@ bad_request:
 
 	stop_monitor();
 	stop_listening(con);
-	kill(ssl_handle_child,SIGINT);
+	/*
+	if(ssl_handle_child != -1)
+		kill(ssl_handle_child,SIGINT);
+		*/
 	return 0;
 
 client:

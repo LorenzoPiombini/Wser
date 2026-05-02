@@ -11,11 +11,11 @@
 static char prog[] = "wser";
 int hdl_sock = -1;
 int ssl_sock = -1;
+int db_sock = -1;
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;
 
 
-int ssl_freed = 0;
 static void handler_main_process(int signo);
 static void handler_ssl_process(int signo);
 static void handler_db_process(int signo);
@@ -103,7 +103,6 @@ static void handler_ssl_process(int signo)
 	default:
 
 	}
-	exit(0);
 }
 
 static void handler_main_process(int signo)
@@ -115,11 +114,12 @@ static void handler_main_process(int signo)
 	case SIGPIPE:
 		stop_monitor();	
 		stop_listening(hdl_sock);
-		SSL_CTX_free(ctx);
-		if(ssl_proc != -1) 
-			kill(ssl_proc,SIGTERM);
-
 		/*terminate all the child*/
+		if(ssl_proc != -1){
+			SSL_CTX_free(ctx); /*i don't think we need this*/
+			kill(ssl_proc,SIGKILL);
+		}
+
 		if(signo == SIGINT)
 			fprintf(stderr,"\b\b(%s):cleaning on interrupt, recived %s.\n",prog,"SIGINT");
 		else if(signo == SIGPIPE)
@@ -132,7 +132,6 @@ static void handler_main_process(int signo)
 	default:
 		break;
 	}
-	exit(-1);
 }
 
 static void handler_db_process(int signo)
@@ -141,11 +140,11 @@ static void handler_db_process(int signo)
 	case SIGINT:
 	case SIGTERM:
 	case SIGPIPE:
+		close(db_sock);
 		/*TODO: undersand what action you have to take for this*/
 		break;
 	default:
-
 	}
-	exit(0);
+
 
 }
