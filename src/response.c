@@ -56,34 +56,67 @@ static char *create_response_message(struct Response *res, int status, struct Co
 
 		return h;
 	}
-
-	if(strncmp(res->headers.protocol_vs,DEFAULT,STD_LEN_PTC) == 0){
-		if(snprintf(h,1024,"%s %u %s\r\n"\
+/*
+	if(strstr(req->resource,".js") || 
+				strstr(req->resource, ".css")){
+		if(strncmp(res->headers.protocol_vs,DEFAULT,STD_LEN_PTC) == 0){
+			if(snprintf(h,1024,"%s %u %s\r\n"\
 					"%s: %s\r\n"\
 					"%s: %s\r\n"\
 					"%s: %ld\r\n"\
+					"%s: %s\r\n"\
 					"%s: %s\r\n"\
 					"\r\n",res->headers.protocol_vs, res->headers.status, res->headers.reason_phrase,
 					"Date", res->headers.date,
 					"Content-Type",req->cont_type,
 					"Content-Length",cont->size,
-					"Connection",res->headers.connection) == -1){
+					"Connection",res->headers.connection,
+					"Cache-Control","max-age=10800") == -1){
 
 			return NULL;
+			}
+		}else if(strncmp(res->headers.protocol_vs,HTTP2,STD_LEN_HTTP2) == 0){
+			if(snprintf(h,1024,"%s %u %s\r\n"\
+						"%s: %s\r\n"\
+						"%s: %ld\r\n"\
+						"%s: %s\r\n"\
+						"\r\n", res->headers.protocol_vs, res->headers.status, res->headers.reason_phrase,
+						"Date", res->headers.date,
+						"Content-Length",cont->size,
+						"Content-Type",req->cont_type) == -1){
+				return NULL;
+			}
 		}
-	}else if(strncmp(res->headers.protocol_vs,HTTP2,STD_LEN_HTTP2) == 0){
-		if(snprintf(h,1024,"%s %u %s\r\n"\
-					"%s: %s\r\n"\
-					"%s: %ld\r\n"\
-					"%s: %s\r\n"\
-					"\r\n", res->headers.protocol_vs, res->headers.status, res->headers.reason_phrase,
-					"Date", res->headers.date,
-					"Content-Length",cont->size,
-					"Content-Type",req->cont_type) == -1){
-			return NULL;
-		}
-	}
 
+	}else{
+	*/
+		if(strncmp(res->headers.protocol_vs,DEFAULT,STD_LEN_PTC) == 0){
+			if(snprintf(h,1024,"%s %u %s\r\n"\
+						"%s: %s\r\n"\
+						"%s: %s\r\n"\
+						"%s: %ld\r\n"\
+						"%s: %s\r\n"\
+						"\r\n",res->headers.protocol_vs, res->headers.status, res->headers.reason_phrase,
+						"Date", res->headers.date,
+						"Content-Type",req->cont_type,
+						"Content-Length",cont->size,
+						"Connection",res->headers.connection) == -1){
+
+				return NULL;
+			}
+		}else if(strncmp(res->headers.protocol_vs,HTTP2,STD_LEN_HTTP2) == 0){
+			if(snprintf(h,1024,"%s %u %s\r\n"\
+						"%s: %s\r\n"\
+						"%s: %ld\r\n"\
+						"%s: %s\r\n"\
+						"\r\n", res->headers.protocol_vs, res->headers.status, res->headers.reason_phrase,
+						"Date", res->headers.date,
+						"Content-Length",cont->size,
+						"Content-Type",req->cont_type) == -1){
+				return NULL;
+			}
+		}
+	/*}*/
 	return h;
 }
 
@@ -108,140 +141,140 @@ static int set_up_headers(struct Header *headers, int status, size_t body_size)
 static void set_status_and_phrase(struct Header *headers, uint16_t status)
 {
 	switch(status){
-	case 100:
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Continue",50);
-		break;
-	case 101  :
-		headers->status = status;
-	       strncpy(headers->reason_phrase,"Switching Protocols",50);
-	       break;
-	case 200:   
-		headers->status = status;
-		strncpy(headers->reason_phrase,"OK",50);
-		break;
-	case 201:
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Created",50);
-		break;
-		       
-	case 202  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Accepted",50);
-		break;
-		       
-	case 203  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Non-Authoritative Information",50);
-		break;
-		       
-	case 204  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"No Content",50);
-		break;
-	 	      
-	case 205  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Reset Content",50);
-		break;
-		      
-	case 206  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Partial Content",50);
-		break;
-		       
-	case 300  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Multiple Choices",50);
-		break;
-		       
-	case 301  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Moved Permanently",50);
-		break;
-		       
-	case 302  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Found",50);
-		break;
-		       
-	case 303  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"See Other",50);
-		break;
-		      
-	case 304  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Not Modified",50);
-		break;
-		       
-	case 305  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Use Proxy",50);
-		break;
-		       
-	case 307  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Temporary Redirect",50);
-		break;
-		       
-	case 400  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Bad Request",50);
-		break;
-		       
-	case 401  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Unauthorized",50);
-		break;
-		      
-	case 402  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Payment Required ",50);
-		break;
-		      
-	case 403  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Forbidden",50);
-		break;
-		      
-	case 404  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Not Found",50);
-		break;
-		       
-	case 405  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Method Not All",50);
-		break;
-	 	      
-	case 406  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Not Acceptabl",50);
-		break;
-	       		
-	case 407  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Proxy Authen",50);
-		break;
-	       		
-	case 408  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Request Tim",50);
-		break;
-	       
-	case 409  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Conflict",50);
-		break;
-	       
-	case 410  :
-		headers->status = status;
-		strncpy(headers->reason_phrase,"Gone",50);
-		break;
-	       
-	case 411  :
-		headers->status = status;
+		case 100:
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Continue",50);
+			break;
+		case 101  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Switching Protocols",50);
+			break;
+		case 200:   
+			headers->status = status;
+			strncpy(headers->reason_phrase,"OK",50);
+			break;
+		case 201:
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Created",50);
+			break;
+
+		case 202  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Accepted",50);
+			break;
+
+		case 203  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Non-Authoritative Information",50);
+			break;
+
+		case 204  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"No Content",50);
+			break;
+
+		case 205  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Reset Content",50);
+			break;
+
+		case 206  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Partial Content",50);
+			break;
+
+		case 300  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Multiple Choices",50);
+			break;
+
+		case 301  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Moved Permanently",50);
+			break;
+
+		case 302  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Found",50);
+			break;
+
+		case 303  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"See Other",50);
+			break;
+
+		case 304  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Not Modified",50);
+			break;
+
+		case 305  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Use Proxy",50);
+			break;
+
+		case 307  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Temporary Redirect",50);
+			break;
+
+		case 400  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Bad Request",50);
+			break;
+
+		case 401  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Unauthorized",50);
+			break;
+
+		case 402  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Payment Required ",50);
+			break;
+
+		case 403  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Forbidden",50);
+			break;
+
+		case 404  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Not Found",50);
+			break;
+
+		case 405  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Method Not All",50);
+			break;
+
+		case 406  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Not Acceptabl",50);
+			break;
+
+		case 407  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Proxy Authen",50);
+			break;
+
+		case 408  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Request Tim",50);
+			break;
+
+		case 409  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Conflict",50);
+			break;
+
+		case 410  :
+			headers->status = status;
+			strncpy(headers->reason_phrase,"Gone",50);
+			break;
+
+		case 411  :
+			headers->status = status;
 		strncpy(headers->reason_phrase,"Length R",50);
 		break;
 	       
