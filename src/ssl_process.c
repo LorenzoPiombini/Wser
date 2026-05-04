@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <sys/socket.h>
@@ -935,16 +936,25 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			assert(db != NULL);
 			if(db[0] == '\0') return -1;
 
-			/*2 stands for  1 '\0', and 1 for the operation*/
-			size_t size_buffer = strlen(db) + 2;
-			char *buffer = (char *) malloc(size_buffer);
+			/*1 is the space  for '\0'*/
+			size_t db_len = strlen(db);
+			size_t size_buffer = db_len + sizeof(uint16_t)+ 1;
+			uint16_t *buffer = malloc(size_buffer);
+			if(!buffer){
+				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
+				return -1;
+			}
 
-			buffer[0] = resource + '0';
-			strncpy(&buffer[1],db,size_buffer-1);
+			memset(buffer,0,size_buffer);
 
+			*buffer = (uint16_t)resource;
+			buffer += 1;
+			strncpy((char*)buffer,db,db_len);
+
+			uint16_t *b = (uint16_t*)buffer - 1;
 			/*send data to the worker process*/
-			if(write(data_sock,buffer,strlen(buffer)) == -1){ 
-				free(buffer);
+			if(write(data_sock,b,size_buffer - 1) == -1){ 
+				free(b);
 				return -1;
 			}
 
@@ -953,22 +963,22 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			 * you can be eficient*/
 			char read_buffer[MAX_CONT_SZ];
 			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){
-				free(buffer);
+				free(b);
 				return -1;
 			}
 
 			if(read_buffer[0] == '\0'){
-				free(buffer);
+				free(b);
 				return -1;
 			}
 
 			if(snprintf(cont->cnt_st,1024,"%s",read_buffer) == -1){
 				/*log error*/
-				free(buffer);
+				free(b);
 				return -1;
 			}
 			cont->size = strlen(cont->cnt_st);
-			free(buffer);
+			free(b);
 			return 0;
 		}
 		case NEW_SORD:
@@ -1003,77 +1013,82 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 
 
 			size_t size_buffer = 0;
-			char *buffer = NULL;
+			uint16_t *buffer = NULL;
 			if(resource == NEW_SORD){
 			/* 3 is 
 			 *  1 for '^'
-			 *  1 for instruction byte
 			 *  1 for '\0';
 			 * */
-				size_buffer = sizeof(orders_head) + sizeof(orders_line)+3;
-				buffer = (char*)malloc(size_buffer);
-				if(!buffer) return -1;
+				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ sizeof(uint16_t) +2;
+				buffer = malloc(size_buffer);
+				if(!buffer){
+					fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__-2);
+					return -1;
+				}
 
 				memset(buffer,0,size_buffer);
 
 				/*parse data to buffer*/
-				buffer[0] = resource + '0';
-				strncpy(&buffer[1],orders_head,strlen(orders_head));
-				strncpy(&buffer[1+strlen(orders_head)],"^",2);
-				strncpy(&buffer[1+strlen(orders_head)+1],orders_line,strlen(orders_line));
+				*buffer = (uint16_t)resource;
+				buffer += 1;
+				strncpy((char*)buffer,orders_head,strlen(orders_head));
+				strncpy((char*)&buffer[strlen(orders_head)],"^",2);
+				strncpy((char*)&buffer[strlen(orders_head)+1],orders_line,strlen(orders_line));
 			}else{
 				/*parse a buffer for the update operation*/
 				char *p = req->resource;
 				p += strlen(UPDATE_ORDERS) + 1;
 
-			/* 4 is 
-			 *  2 for '^'
-			 *  1 for instruction byte
-			 *  1 for '\0';
+			/* 3 is 
+			 *   - 2 for '^'
+			 *   - 1 for '\0';
 			 * */
 				
-				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ strlen(p) +4;
-				buffer = (char*)malloc(size_buffer);
+				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ strlen(p)+ sizeof(uint16_t) +3;
+				buffer = malloc(size_buffer);
 				if(!buffer) return -1;
 
 				memset(buffer,0,size_buffer);
 
-				buffer[0] = resource + '0';
-				strncpy(&buffer[1],p,strlen(p));
-				int position = 1+strlen(p);
-				strncpy(&buffer[position],"^",2);
+				*buffer = (uint16_t)resource;
+				
+				buffer += 1;
+				strncpy((char*)buffer,p,strlen(p));
+				int position = strlen(p);
+				strncpy((char*)&buffer[position],"^",2);
 				position += 1;
-				strncpy(&buffer[position],orders_head,strlen(orders_head));
+				strncpy((char*)&buffer[position],orders_head,strlen(orders_head));
 				position += strlen(orders_head);
-				strncpy(&buffer[position],"^",2);
+				strncpy((char*)&buffer[position],"^",2);
 				position += 1;
-				strncpy(&buffer[position],orders_line,strlen(orders_line));
+				strncpy((char*)&buffer[position],orders_line,strlen(orders_line));
 			}
 
+			uint16_t *b = (uint16_t*)buffer - 1;
 			/*send data to the worker process*/
-			if(write(data_sock,buffer,strlen(buffer)) == -1){
-				free(buffer);
+			if(write(data_sock,b,size_buffer) == -1){
+				free(b);
 				return -1;
 			}
 
 			char read_buffer[MAX_CONT_SZ];
 			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){ 
-				free(buffer);
+				free(b);
 				return -1;
 			}
 
 			if(read_buffer[0] == '\0') {
-				free(buffer);
+				free(b);
 				return -1;
 			}
 
 			if(snprintf(cont->cnt_st,1024,"%s",read_buffer) == -1){
 				/*log error*/
-				free(buffer);
+				free(b);
 				return -1;
 			}
 			cont->size = strlen(cont->cnt_st);
-			free(buffer);
+			free(b);
 			return 0;
 		}
 		case S_ORD:
@@ -1102,12 +1117,13 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			 * */
 			check_URL_encoding(p);
 
-			size_t key_size = strlen(p);
-			char buffer[key_size+2];
-			memset(buffer,0,key_size+2);
+			size_t key_size = strlen(p) +sizeof(uint16_t)+2;
+			char buffer[key_size];
+			memset(buffer,0,key_size);
 
-			buffer[0] = resource + '0';
-			strncpy(&buffer[1],p,key_size);
+			uint16_t *b = (uint16_t*)&buffer[0];
+			*b = (uint16_t) resource;
+			strncpy(&buffer[2],p,key_size - 2);
 
 			if(write(data_sock,buffer,sizeof(buffer)) == -1){
 				return -1;
@@ -1155,12 +1171,15 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 		case S_ORD:
 		{		
 			/*send data to the worker process*/
-			char buffer[2];
-			memset(buffer,0,2);
-			if(resource == S_ORD)
-				buffer[0] = S_ORD + '0';
-			else
-				buffer[0] = CUSTOMER_GET_ALL + '0';
+			char buffer[3];
+			memset(buffer,0,3);
+			if(resource == S_ORD){
+				uint16_t *b = (uint16_t*)&buffer[0];
+				*b = (uint16_t)S_ORD;
+			}else{
+				uint16_t *b = (uint16_t*)&buffer[0];
+				*b = (uint16_t)CUSTOMER_GET_ALL;
+			}
 
 			if(write(data_sock,buffer,sizeof(buffer)) == -1){
 				return -1;
@@ -1213,12 +1232,13 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			char *p = req->resource;
 			p += strlen(SALES_ORDERS) + 1;
 
-			size_t key_size = strlen(p);
-			char buffer[key_size+2];
-			memset(buffer,0,key_size+2);
+			size_t key_size = strlen(p) +sizeof(uint16_t) + 2;
+			char buffer[key_size];
+			memset(buffer,0,key_size);
 
-			buffer[0] = resource + '0';
-			strncpy(&buffer[1],p,key_size);
+			uint16_t *b = (uint16_t*)&buffer[0];
+			*b = (uint16_t)resource;
+			strncpy(&buffer[2],p,key_size-2);
 
 			if(write(data_sock,buffer,strlen(buffer)) == -1) return -1;
 
