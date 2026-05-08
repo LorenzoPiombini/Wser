@@ -690,6 +690,8 @@ static int process_request(struct Request *req, int cli_sock)
 		if(!strstr(req->resource,".html")
 			&& !strstr(req->resource,".css")
 			&& !strstr(req->resource,".js")){
+
+			fprintf(stderr,"resource is %s\n",req->resource);
 		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
 #endif
 			if(load_resource(req->resource,&cont) == -1){
@@ -867,6 +869,7 @@ static int process_request(struct Request *req, int cli_sock)
 		struct Response res = {0};
 		struct Content cont = {0};
 
+		fprintf(stderr,"POST branch resource is %s\n",req->resource);		
 		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
 			if(generate_response(&res,404,&cont,req) == -1) break;
 
@@ -1103,13 +1106,42 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 	case GET:
 	{
 		switch(resource){
+		case S_ORD_GET:
+		case ITEM_GET:
+		case S_ORD_CUSTOMER_GET:
 		case CUSTOMER_GET:
 		{
 
 			/*get the Key from the request*/
-			char *p = req->resource;
-			p += strlen(CUSTOMERS) + 1;
-
+			char *p = NULL;
+			switch(resource){
+			case S_ORD_GET:
+			{
+				p = req->resource;
+				p += strlen(SALES_ORDERS) + 1;
+				break;
+			}
+			case ITEM_GET:
+			{
+				p = req->resource;
+				p += strlen(ITEMS) + 1;
+				break;
+			}
+			case CUSTOMER_GET:
+			{
+				p = req->resource;
+				p += strlen(CUSTOMERS) + 1;
+				break;
+			}
+			case S_ORD_CUSTOMER_GET:
+			{
+				p = req->resource;
+				p += strlen(SALES_NEW_ORDER_CUSTOMERS) + 1;
+				break;
+			}
+			default:
+				return -1;
+			}
 			/*
 			 * check for URL encoding 
 			 * if the %20 is found, the function will 
@@ -1167,18 +1199,26 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 			free(read_buffer);
 			return 0;
 		}
+		case ITEM_GET_ALL:
 		case CUSTOMER_GET_ALL:
 		case S_ORD:
 		{		
 			/*send data to the worker process*/
 			char buffer[3];
 			memset(buffer,0,3);
-			if(resource == S_ORD){
-				uint16_t *b = (uint16_t*)&buffer[0];
+			uint16_t *b = (uint16_t*)&buffer[0];
+			switch(resource){
+			case S_ORD:
 				*b = (uint16_t)S_ORD;
-			}else{
-				uint16_t *b = (uint16_t*)&buffer[0];
+				break;
+			case CUSTOMER_GET_ALL:
 				*b = (uint16_t)CUSTOMER_GET_ALL;
+				break;
+			case ITEM_GET_ALL:
+				*b = (uint16_t)ITEM_GET_ALL;
+				break;
+			default:
+				return -1;
 			}
 
 			if(write(data_sock,buffer,sizeof(buffer)) == -1){
@@ -1197,7 +1237,6 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 				return -1;
 			}
 			
-
 			if(bread == ((EIGHTkib_limit * 4) - 1)){
 				free(read_buffer);
 				fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
@@ -1224,42 +1263,6 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 				return -1;
 			}
 
-			free(read_buffer);
-			return 0;
-		}
-		case S_ORD_GET:
-		{
-			char *p = req->resource;
-			p += strlen(SALES_ORDERS) + 1;
-
-			size_t key_size = strlen(p) +sizeof(uint16_t) + 2;
-			char buffer[key_size];
-			memset(buffer,0,key_size);
-
-			uint16_t *b = (uint16_t*)&buffer[0];
-			*b = (uint16_t)resource;
-			strncpy(&buffer[2],p,key_size-2);
-
-			if(write(data_sock,buffer,strlen(buffer)) == -1) return -1;
-
-			char *read_buffer = (char*) malloc(EIGHTkib_limit);
-			if(!read_buffer) return -1;
-
-			ssize_t bread = 0;
-			if((bread = read(data_sock,read_buffer,EIGHTkib_limit) == -1)) {
-				free(read_buffer);
-				return -1;
-			}
-
-			if(bread == EIGHTkib_limit){
-				/*code refactor*/					
-				free(read_buffer);
-				fprintf(stderr,"code refactor needed %s:%d\n",__FILE__,__LINE__-4);
-				return -1;
-			}
-
-			strncpy(cont->cnt_st,read_buffer,strlen(read_buffer));		
-			cont->size = strlen(read_buffer);
 			free(read_buffer);
 			return 0;
 		}
