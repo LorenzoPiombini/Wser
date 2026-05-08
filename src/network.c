@@ -224,8 +224,9 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 				strncat(buff,res->body.content,res->body.size);
 		}
 	} else {
-		if(res->body.size > 0)
-			strncat(res->header_str,res->body.content,res->body.size);
+		if(res->body.size > 0){
+			strncpy(&res->header_str[strlen(res->header_str)],res->body.content,res->body.size);
+		}
 	}
 
 
@@ -278,15 +279,23 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		cd[i].fd = -1;
 		free(buff);
 	}
+
 	/*Write was succesful we can shutdown the TLS section*/
 		
 	int r = 0;
-	while((r = SSL_shutdown(cd[i].ssl) != 1)){
+	while((r = SSL_shutdown(cd[i].ssl)) != 1){
+		/*
+		int err = SSL_get_error(cd[i].ssl,r);
+		if(err == SSL_ERROR_WANT_READ 
+			|| err == SSL_ERROR_WANT_WRITE)
+			continue;
+			*/
+			
+
 		if((r = handle_client_IO(cd[i].ssl,r)) == 1)
 			continue;
 		else if(r == 2 || r == 0)
 			break;
-
 		return -1;
 	}
 	return 0;
