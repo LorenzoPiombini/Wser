@@ -6,6 +6,7 @@
 
 extern int hdl_sock; 
 extern int ssl_sock;
+extern int db_sock;
 extern pid_t ssl_proc; 
 extern pid_t db_proc; 
 
