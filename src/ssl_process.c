@@ -1034,9 +1034,10 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 				/*parse data to buffer*/
 				*buffer = (uint16_t)resource;
 				buffer += 1;
-				strncpy((char*)buffer,orders_head,strlen(orders_head));
-				strncpy((char*)&buffer[strlen(orders_head)],"^",2);
-				strncpy((char*)&buffer[strlen(orders_head)+1],orders_line,strlen(orders_line));
+				char *p = (char*)buffer;
+				strncpy(p,orders_head,strlen(orders_head));
+				strncpy(&p[strlen(orders_head)],"^",2);
+				strncpy(&p[strlen(orders_head)+1],orders_line,strlen(orders_line));
 			}else{
 				/*parse a buffer for the update operation*/
 				char *p = req->resource;
@@ -1056,15 +1057,17 @@ static int load_resource_db(struct Request *req, struct Content *cont,int data_s
 				*buffer = (uint16_t)resource;
 				
 				buffer += 1;
-				strncpy((char*)buffer,p,strlen(p));
+				char *b = (char*)buffer;
+
+				strncpy(b,p,strlen(p));
 				int position = strlen(p);
-				strncpy((char*)&buffer[position],"^",2);
+				strncpy(&b[position],"^",2);
 				position += 1;
-				strncpy((char*)&buffer[position],orders_head,strlen(orders_head));
+				strncpy(&b[position],orders_head,strlen(orders_head));
 				position += strlen(orders_head);
-				strncpy((char*)&buffer[position],"^",2);
+				strncpy(&b[position],"^",2);
 				position += 1;
-				strncpy((char*)&buffer[position],orders_line,strlen(orders_line));
+				strncpy(&b[position],orders_line,strlen(orders_line));
 			}
 
 			uint16_t *b = (uint16_t*)buffer - 1;
