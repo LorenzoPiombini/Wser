@@ -1399,6 +1399,9 @@ static int check_URL_encoding(char *p)
 		s = space;
 	}
 	
+	if(!copied)
+		return 0;
+
 	strncpy(&clean[copied],s,strlen(s));
 	strncpy(p,clean,strlen(clean));
 	p[strlen(clean)] = '\0';
