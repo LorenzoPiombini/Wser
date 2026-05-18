@@ -690,7 +690,7 @@ static int process_request(struct Request *req, int cli_sock)
 		if(!strstr(req->resource,".html")
 			&& !strstr(req->resource,".css")
 			&& !strstr(req->resource,".js")
-			&& !(strncmp(req->resource,"/",1) == 0)){
+			&& !((strlen(req->resource) == 1) && strncmp(req->resource,"/",1) == 0)){
 
 			fprintf(stderr,"resource is %s\n",req->resource);
 		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
