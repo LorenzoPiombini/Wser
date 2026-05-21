@@ -34,10 +34,9 @@ int main(int argc, char **argv)
 	int con = -1;
 	uint16_t port = secure ? 443 : 80;
 	if((con = listen_port_80(&port)) == -1){
-		fprintf(stderr,"(%s): cannot listen to port 80.\n",prog);
+		fprintf(stderr,"(%s): cannot listen to port %d.\n",prog,port);
 		return -1;
 	}
-
 
 	fprintf(stdout,"(%s): listening on port %d...\n",prog,port);
 
@@ -105,10 +104,51 @@ int main(int argc, char **argv)
 		cmsgp->cmsg_level = SOL_SOCKET;
 		cmsgp->cmsg_type = SCM_RIGHTS;
 		cmsgp->cmsg_len = CMSG_LEN(sizeof(int));
+		ssl_proc = ssl_handle_child;
+	}else{
+
+#ifdef OWN_DB
+		/*this is needed for testing
+		 * when we run the server on port 80, but we need to test the entire architecture 
+		 * becuase we do not have a safe connection
+		 * */
+	int work_proc_data_sock = -1;
+
+	pid_t work_proc_pid = fork();
+
+	if(work_proc_pid == -1){
+		/*Parent*/
+		fprintf(stderr,"(%s): architecture cannot be implemented.\n",prog);
+		return -1;
 	}
 
-	ssl_proc = ssl_handle_child;
-	hdl_sock  = con;
+	if(work_proc_pid == 0){
+		/*CHILD*/
+		/* start DB handle process */	
+		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
+			fprintf(stderr,"cannot start Data base.\n");
+			kill(getppid(),SIGINT);
+		 	exit(-1);
+		}
+
+		
+		db_sock = work_proc_data_sock;
+		if(handle_sig_db_process() == -1)
+			exit(1);
+
+		work_process(work_proc_data_sock);
+		return -1;
+	}
+	
+	/*parent*/
+	db_proc = work_proc_pid;
+
+#endif /* OWN_DB -make flag*/
+
+#endif
+	}
+
+	hdl_sock = con;
 	if(handle_sig_main_process() == -1) return -1;
 
 	if(start_monitor(con) == -1) {
