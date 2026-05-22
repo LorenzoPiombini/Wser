@@ -15,6 +15,13 @@
 #include "response.h"
 #include "ssl_process.h"
 
+#if OWN_DB
+
+#include "work_process.h" /* database handler*/
+#include "end_points.h"
+#include "lua_start.h"
+#include "ctype.h"
+#endif
 
 char prog[] = "wser";
 
@@ -145,7 +152,6 @@ int main(int argc, char **argv)
 
 #endif /* OWN_DB -make flag*/
 
-#endif
 	}
 
 	hdl_sock = con;
@@ -243,7 +249,11 @@ int main(int argc, char **argv)
 					switch(req.method){
 					case GET:
 						/* Load content */	
-						if(load_resource(req.resource,&cont) == -1){
+						if((strstr(req.resource,".js")
+								|| strstr(req.resource,".html")
+								|| strstr(req.resource,".css")
+								|| (strlen(req.resource) == 1 && (strncmp(req.resource,"/",1) == 0)))
+								&& load_resource(req.resource,&cont) == -1){
 							/*send not found response*/
 							if(generate_response(&res,404,&cont,&req) == -1) break;
 
@@ -276,6 +286,10 @@ int main(int argc, char **argv)
 							clear_content(&cont);
 							stop_listening(cli_sock);
 							exit(1);
+						}else{
+#ifdef OWN_DB
+							/*TODO: get data from the DB*/
+#endif
 						}
 
 						/*send 200 response*/
