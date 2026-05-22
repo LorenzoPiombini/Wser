@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <netdb.h>
@@ -303,7 +304,6 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 
 int write_cli_sock(int cli_sock, struct Response *res)
 {
-
 	size_t l = strlen(res->header_str);
 	size_t buff_l = res->body.size + l + 1;
 	char *buff = NULL;
@@ -323,7 +323,6 @@ int write_cli_sock(int cli_sock, struct Response *res)
 		if(res->body.d_cont){
 			strncat(buff,res->body.d_cont,res->body.size);
 		}else{
-		
 			if(res->body.size > 0)
 				strncat(buff,res->body.content,res->body.size);
 		}
@@ -337,7 +336,7 @@ int write_cli_sock(int cli_sock, struct Response *res)
 		errno = 0;
 		if(write(cli_sock,res->header_str,strlen(res->header_str)) == -1){
 			if(errno == EAGAIN || errno == EWOULDBLOCK){
-				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) return -1;
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLIN) == -1) return -1;
 				return errno;
 			}
 
@@ -345,18 +344,31 @@ int write_cli_sock(int cli_sock, struct Response *res)
 			return -1;
 		}
 	}else{
-		errno = 0;
-		if(write(cli_sock,buff,buff_l) == -1){
-			if(errno == EAGAIN || errno == EWOULDBLOCK){	
-				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLET) == -1) return -1;
-				return errno;
+		/*
+		 * buff_l - 1 is to avoid to write '\0' to the browser which will cause issues
+		 * */
+		int nb = 0;
+		if(ioctl(cli_sock,FIONBIO,&nb) == -1){
+			fprintf(stderr,"ioctl failed! ");
+
+		}	
+		long long w = 0;
+		long long written = 0;
+		long long s = (long long)strlen(buff);
+		while(((w = write(cli_sock,&buff[written],s)) < s) || w == -1){
+			if(w != -1){
+				s -= w;
+				written += w;
+				if (written == (long long) strlen(buff))
+					break;
+				continue;
 			}
 
 			free(buff);
 			fprintf(stderr,"(%s): cannot write to socket.\n",prog);
 			return -1;
 		}
-		
+		printf("wrote %lld bytes to the socket.\n",w);
 		free(buff);
 	}
 	return 0;
