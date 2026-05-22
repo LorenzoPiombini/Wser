@@ -181,7 +181,12 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 
 			/*TODO: refactor the socket comunication so that you read once with 
 			 * the size of the next message then you allocate a buffer accordangly so 
-			 * you can be eficient*/
+			 * you can be eficient
+			 * 
+			 *  NOTE: I do not think we need a refactor here as per 05/22/26
+			 *
+			 *
+			 * */
 			char read_buffer[MAX_CONT_SZ];
 			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){
 				free(b);
@@ -553,7 +558,10 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	}
 	return 0;
 }	
-
+/*
+ * This translate the JSON object from the UI in 
+ * the string to add data to the Database
+ * */
 static char *convert_json(char* body)
 {
 	static char db_entry[1024] = {0};
