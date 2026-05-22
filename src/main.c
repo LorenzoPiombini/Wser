@@ -243,59 +243,97 @@ int main(int argc, char **argv)
 						stop_listening(cli_sock);
 						exit(0);
 					}
+#ifdef OWN_DB
 
+					int db_handle_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_DB);
+#endif
 					struct Content cont;
 					memset(&cont,0,sizeof(struct Content));
 					switch(req.method){
 					case GET:
 						/* Load content */	
 						if((strstr(req.resource,".js")
-								|| strstr(req.resource,".html")
-								|| strstr(req.resource,".css")
-								|| (strlen(req.resource) == 1 && (strncmp(req.resource,"/",1) == 0)))
-								&& load_resource(req.resource,&cont) == -1){
-							/*send not found response*/
-							if(generate_response(&res,404,&cont,&req) == -1) break;
+							|| strstr(req.resource,".html")
+							|| strstr(req.resource,".css")
+							|| (strlen(req.resource) == 1 && (strncmp(req.resource,"/",1) == 0)))){
+								if(load_resource(req.resource,&cont) == -1){
+									/*send not found response*/
+									if(generate_response(&res,404,&cont,&req) == -1) break;
 
-							int w = 0;
-							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-							if(w == EAGAIN || w == EWOULDBLOCK){
-								uint8_t ws = 0;
-								while((w = write_cli_sock(cli_sock,&res) != -1)){
-									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+									int w = 0;
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									if(w == EAGAIN || w == EWOULDBLOCK){
+										uint8_t ws = 0;
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-									ws = 1;
-									break;
-								}
+											ws = 1;
+											break;
+										}
 
 
-								if(ws){
-									stop_listening(cli_sock);
+										if(ws){
+											stop_listening(cli_sock);
+											clear_request(&req);
+											clear_content(&cont);
+											exit(0);
+										}
+
+										clear_request(&req);
+										clear_content(&cont);
+										stop_listening(cli_sock);
+										exit(1);
+									}
+
 									clear_request(&req);
 									clear_content(&cont);
-									exit(0);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+						}else{
+#ifdef OWN_DB
+							/*get data from the DB*/
+							if(load_resource_db(&req,&cont,db_handle_sock) == -1){
+								/*send a bed request response*/
+								if(generate_response(&res,400,NULL,&req) == -1) break;
+
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK || w == SSL_WRITE_E){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+									if(ws){
+										clear_response(&res);
+										stop_listening(cli_sock);
+										close(db_handle_sock);
+										exit(0);
+									}
+									clear_response(&res);
+									stop_listening(cli_sock);
+									close(db_handle_sock);
+									exit(1);
 								}
 
 								clear_request(&req);
-								clear_content(&cont);
+								clear_response(&res);
 								stop_listening(cli_sock);
-								exit(1);
+								close(db_handle_sock);
+								exit(0);
 							}
-
-							clear_request(&req);
-							clear_content(&cont);
-							stop_listening(cli_sock);
-							exit(1);
-						}else{
-#ifdef OWN_DB
-							/*TODO: get data from the DB*/
 #endif
 						}
-
 						/*send 200 response*/
 						if(generate_response(&res,OK,&cont,&req) == -1) {
 							/*TODO: server errror*/
 							clear_content(&cont);
+#ifdef OWN_DB
+							close(db_handle_sock);
+#endif
 							exit(1);
 						}
 
@@ -311,14 +349,20 @@ int main(int argc, char **argv)
 								break;
 							}
 							if(ws){
-								stop_listening(cli_sock);
 								clear_request(&req);
 								clear_response(&res);
+#ifdef OWN_DB
+								close(db_handle_sock);
+#endif
+								stop_listening(cli_sock);
 								exit(0);
 							}
 							clear_request(&req);
 							clear_response(&res);
 							stop_listening(cli_sock);
+#ifdef OWN_DB
+								close(db_handle_sock);
+#endif
 							exit(1);
 						}
 
@@ -331,6 +375,9 @@ int main(int argc, char **argv)
 						clear_request(&req);
 						clear_response(&res);
 						stop_listening(cli_sock);
+#ifdef OWN_DB
+								close(db_handle_sock);
+#endif
 						exit(0);
 					case OPTIONS:
 					{
