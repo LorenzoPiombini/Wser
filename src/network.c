@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
+#include <sys/random.h>
 #include <sys/un.h>
 #include <netdb.h>
 #include <errno.h>
@@ -26,6 +27,8 @@ SSL_CTX *ctx = NULL;
 SSL *ssl_client = NULL;
 
 #define USE_HTTPS 0
+#define DNS_SERVER "8.8.8.8"
+
 static char prog[] = "wser";
 static int SSL_client_setup(SSL_CTX **ctx);
 static int handle_client_IO(SSL *ssl, int ret);
@@ -34,6 +37,7 @@ static long read_hex_for_transfer_encoding(char *, long *);
 static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
 static void debugf(char *fmt);
+static void format_domain_for_query(char *domain, char *formatted_domain)
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
@@ -71,6 +75,8 @@ int init_SSL(SSL_CTX **ctx){
 
 	/*apply the selction options */
 	SSL_CTX_set_options(*ctx, opts);
+
+	/*NOTE: this will always change! depends on the implementation*/
 	if(SSL_CTX_use_certificate_chain_file(*ctx,"/home/lpiombini/local_cert/server.crt") <= 0 ) {
 		fprintf(stderr,"error use certificate.\n");
 		return -1;
@@ -90,7 +96,6 @@ int init_SSL(SSL_CTX **ctx){
 	SSL_CTX_set_ciphersuites(*ctx,"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256");
 	return 0;
 }
-
 
 int listen_port_80(uint16_t *port)
 {
@@ -193,6 +198,63 @@ int listen_UNIX_socket(int opt, char *sock_path)
 	return sock_un;
 }
 
+static void format_domain_for_query(char *domain, char *formatted_domain)
+{
+	size_t s = strlen(domain);
+	char cpy[s+1];
+	memset(cpy,0,s+1);
+	strncpy(cpy,domain,s+1);
+
+	uint8_t buf[255] = {0};
+	
+	int i = 0, j = 1, x = 0;
+	for(char *p = &cpy[0]; *p;p++,i++){
+		if(*p == '.'){
+			buf[x] = (uint8_t)i;
+			x = j;
+			j++;
+			i = -1;
+			continue;
+		}
+		buf[j] = (uint8_t)*p;
+		j++;
+	}
+	buf[x] = (uint8_t)i;
+	memcpy(formatted_domain,buf,255);
+}
+int DNS_query(char *domain, int type)
+{
+
+	/*PREPARE THE DNS query*/
+
+	struct DNS_header header = {0};
+	if(getrandom(&header.id,sizeof(uint16_t),0) == -1)
+		return -1;
+
+	header.id = htons(header.id);
+	SET_RD(header.fileds);
+	SET_Z(header.fields);
+
+	header.qdcount = 1;
+	header.qdcount = htons(header.qdcount);
+
+	struct DNS_question question= {0};
+	format_domain_for_query(domain,question.qname);
+
+
+	/*create UDP socket*/
+	int udp_sock = socket(AF_INET,SOCK_DGRAM,0);
+	if(udp_sock == -1)
+		return -1;
+
+	struct sockaddr_in addr = {0};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(53); /*port number as per RFC 1035*/ 
+	addr.sin_addr.s_addr = inet_addr(DNS_SERVER) ;
+
+	/*TODO*/
+
+}
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd)
 {
 	int i;

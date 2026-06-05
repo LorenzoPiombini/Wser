@@ -108,7 +108,7 @@ int modify_monitor_event(int sock, int event)
 	ev.events = event;
 	ev.data.fd = sock;
 	if (epoll_ctl(epollfd, EPOLL_CTL_MOD, sock, &ev) == -1) {
-               fprintf(stderr,"(%s): cannot mod socket event in the monitor",prog);
+               fprintf(stderr,"(%s): cannot modify socket event in the monitor",prog);
                return -1;
 	}
 	

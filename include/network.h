@@ -22,6 +22,41 @@
 	#define INT_PROC_SOCK_DB  "/tmp/db_operation.socket"
 #endif /*OWN_DB -make flag-*/
 
+/*MACRO TO MANIPULATE THE DNS HEADER */
+#define SET_QR(n) 			((n) |= 0x8000)
+#define SET_OPCODE(n,val) 	((n) = ((n) &= 0x8FFF) | (((val) & 0x0F) << 11))
+#define SET_AA(n) 			((n) |= 0x0400)
+#define SET_TC(n) 			((n) |= 0x0200)
+#define SET_RD(n) 			((n) |= 0x0100)
+#define SET_RA(n) 			((n) |= 0x0080)
+#define SET_Z(n)  			((n) &= 0xFF0F )/*must be 0 RFC 1035*/
+#define SET_RDCODE(n,val) 	((n) = ((n) &= 0xFFF0 ) | (((val) & 0x0F )))
+
+struct DNS_header{
+	uint16_t id;
+	uint16_t fields; /*(RFC 1035) this contains QR|   Opcode  |AA|TC|RD|RA|   Z    |   RCODE   |*/
+	uint16_t qdcount;
+	uint16_t ancount;
+	uint16_t nscount;
+	uint16_t arcount;
+};
+
+
+struct DNS_question{
+	uint8_t qname[255];
+	uint16_t qtype;
+	uint16_t qclass;
+};
+
+struct DNS_record_format{
+	uint8_t name[255];
+	uint16_t type;
+	uint16_t class;
+	uint16_t ttl;
+	uint16_t rdlength;
+	uint8_t *rdata; /*variable data*/
+};
+
 extern SSL_CTX *ctx;
 
 #define MAX_HOST_LT 50
@@ -61,6 +96,7 @@ int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
 int listen_UNIX_socket(int opt, char *sock_path);
+int DNS_query(char *domain, int type);
 int connect_UNIX_socket(int opt, char *sock_path);
 void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
