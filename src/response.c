@@ -375,8 +375,8 @@ static int not_found_header(char *header, struct Request *req, struct Response *
 					"Date: %s\r\n"\
 					"Content-Type: %s\r\n"\
 					"Connection: %s\r\n"\
-					"\r\n",res->headers.protocol_vs, 404, "Not Found",res->headers.date,
-					req->cont_type,res->headers.connection) == -1){
+					"\r\n%s",res->headers.protocol_vs, 404, "Not Found",res->headers.date,
+					req->cont_type,res->headers.connection,NOT_FOUND) == -1){
 
 			return -1;
 	}
