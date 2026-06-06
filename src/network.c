@@ -37,7 +37,7 @@ static long read_hex_for_transfer_encoding(char *, long *);
 static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
 static void debugf(char *fmt);
-static void format_domain_for_query(char *domain, char *formatted_domain);
+static void format_domain_for_query(char *domain, uint8_t *formatted_domain);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
@@ -232,7 +232,7 @@ int DNS_query(char *domain, int type)
 		return -1;
 
 	header.id = htons(header.id);
-	SET_RD(header.fileds);
+	SET_RD(header.fields);
 	SET_Z(header.fields);
 
 	header.qdcount = 1;
