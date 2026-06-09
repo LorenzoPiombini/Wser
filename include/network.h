@@ -22,6 +22,7 @@
 	#define INT_PROC_SOCK_DB  "/tmp/db_operation.socket"
 #endif /*OWN_DB -make flag-*/
 
+#define QR (uint16_t)32768
 /*MACRO TO MANIPULATE THE DNS HEADER */
 #define SET_QR(n) 			((n) |= 0x8000)
 #define SET_OPCODE(n,val) 	((n) = ((n) &= 0x8FFF) | (((val) & 0x0F) << 11))
@@ -29,8 +30,35 @@
 #define SET_TC(n) 			((n) |= 0x0200)
 #define SET_RD(n) 			((n) |= 0x0100)
 #define SET_RA(n) 			((n) |= 0x0080)
-#define SET_Z(n)  			((n) &= 0xFF0F )/*must be 0 RFC 1035*/
+#define SET_Z(n)  			((n) &= 0xFF2F )/*must be 0 RFC 1035*/
 #define SET_RDCODE(n,val) 	((n) = ((n) &= 0xFFF0 ) | (((val) & 0x0F )))
+#define GET_QR(n)           ((n) & 0x8000)
+#define GET_OPCODE(n)       (((n) & 0x7800) >> 11)
+#define GET_AA(n)           ((n) & 0x0400)
+#define GET_TC(n)           ((n) & 0x0200)
+#define GET_RD(n)           ((n) & 0x0100)
+#define GET_RA(n)           ((n) & 0x0080)
+#define GET_Z(n)            (((n) & 0x0070) >> 4)
+#define GET_RCODE(n)        ((n) & 0x000F)
+#define IS_A_POINTER(n)		((n) & 0xC000)
+
+/*TYPES OF QUERY*/
+enum{
+	A = 1,
+	NS = 2,         
+	CNAME = 5,    
+	SOA  = 6, 
+	MB  = 7,     
+	MG  = 8,    
+	MR  = 9,   
+	NULL_TYPE = 10, 
+	WKS  = 11,
+	PTR = 12,   
+	HINFO  = 13,  
+	MINFO  = 14,
+	MX = 15,
+	TXT = 16
+};
 
 struct DNS_header{
 	uint16_t id;
@@ -41,18 +69,17 @@ struct DNS_header{
 	uint16_t arcount;
 };
 
-
 struct DNS_question{
 	uint8_t qname[255];
 	uint16_t qtype;
 	uint16_t qclass;
 };
 
-struct DNS_record_format{
+struct DNS_record{
 	uint8_t name[255];
 	uint16_t type;
 	uint16_t class;
-	uint16_t ttl;
+	uint32_t ttl;
 	uint16_t rdlength;
 	uint8_t *rdata; /*variable data*/
 };
@@ -96,7 +123,7 @@ int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
 int listen_UNIX_socket(int opt, char *sock_path);
-int DNS_query(char *domain, int type);
+int DNS_query(char *domain, uint16_t type);
 int connect_UNIX_socket(int opt, char *sock_path);
 void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);

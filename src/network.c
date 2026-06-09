@@ -198,7 +198,7 @@ int listen_UNIX_socket(int opt, char *sock_path)
 	return sock_un;
 }
 
-static void format_domain_for_query(char *domain, char *formatted_domain)
+static void format_domain_for_query(char *domain, uint8_t *formatted_domain)
 {
 	size_t s = strlen(domain);
 	char cpy[s+1];
@@ -222,7 +222,7 @@ static void format_domain_for_query(char *domain, char *formatted_domain)
 	buf[x] = (uint8_t)i;
 	memcpy(formatted_domain,buf,255);
 }
-int DNS_query(char *domain, int type)
+int DNS_query(char *domain, uint16_t type)
 {
 
 	/*PREPARE THE DNS query*/
@@ -235,12 +235,20 @@ int DNS_query(char *domain, int type)
 	SET_RD(header.fields);
 	SET_Z(header.fields);
 
-	header.qdcount = 1;
-	header.qdcount = htons(header.qdcount);
+	header.qdcount = htons((uint16_t)1);
 
 	struct DNS_question question= {0};
 	format_domain_for_query(domain,question.qname);
+	question.qtype = htons(type);
+	question.qclass = htons((uint16_t)1); /*CLASS IN*/
 
+	uint8_t b[512] = {0};
+	int qname_sz =(int) strlen((char*)question.qname);
+	
+	memcpy(b,&header,sizeof(header));
+	memcpy(&b[sizeof(header)],question.qname,qname_sz);/*+1 is to respect the format of QNAME*/
+	memcpy(&b[sizeof(header)+qname_sz+1],&question.qtype,sizeof(uint16_t));
+	memcpy(&b[sizeof(header)+qname_sz+1+sizeof(uint16_t)],&question.qclass,sizeof(uint16_t));
 
 	/*create UDP socket*/
 	int udp_sock = socket(AF_INET,SOCK_DGRAM,0);
@@ -252,9 +260,65 @@ int DNS_query(char *domain, int type)
 	addr.sin_port = htons(53); /*port number as per RFC 1035*/ 
 	addr.sin_addr.s_addr = inet_addr(DNS_SERVER) ;
 
-	/*TODO*/
+	if(sendto(udp_sock,b,sizeof(header)+qname_sz+1+(2*sizeof(uint16_t)),0,(struct sockaddr*)&addr,(socklen_t)sizeof(addr)) == -1){
+		close(udp_sock);
+		return -1;
+	}
+	
+	uint8_t raw_response[512] = {0};
+	int addr_size = (int)sizeof(addr);
+	if(recvfrom(udp_sock,raw_response,512,0,(struct sockaddr*)&addr,(socklen_t*)&addr_size) == -1){
+		close(udp_sock);
+		return -1;
+	}
 
+	/*parse the response*/
+	int bread = 0;
+	struct DNS_record res_r = {0};
+	struct DNS_question res_q = {0};
+	struct DNS_header res_h = *(struct DNS_header*)raw_response;
+	if(res_h.id != header.id)
+		return -1;
+
+	bread += (int)sizeof(struct DNS_header);
+	memcpy(res_q.qname,&raw_response[bread],qname_sz+1);
+	bread += qname_sz +1;
+	
+	res_q.qtype = *(uint16_t*)&raw_response[bread];
+	bread += (int)sizeof(uint16_t);
+	
+	if((uint16_t)GET_QR(res_h.fields) != QR)
+		return -1;
+
+	/*2 is server status, so if it is not an answer exit*/
+	if((uint8_t)GET_OPCODE(res_h.fields) == (uint8_t)2)
+		return -1;
+
+	res_q.qclass = *(uint16_t*)&raw_response[bread];
+	bread += (int)sizeof(uint16_t);
+	
+	
+	/*RESOURCE RECORD*/
+	uint16_t offset = 0;
+	uint16_t p = ntohs(*(uint16_t*)&raw_response[bread]);
+	
+	if(IS_A_POINTER(p)){
+		/*get the offset of the domain in the message*/
+		offset = p & 0x0FFF; 
+		bread += sizeof(uint16_t);	
+	}
+	res_r.type = *(uint16_t*)&raw_response[bread];
+	bread += sizeof(uint16_t);	
+	res_r.class = *(uint16_t*)&raw_response[bread];
+	bread += sizeof(uint16_t);	
+	if(res_r.type != question.qtype || res_r.class != question.qclass)
+		return -1;
+
+
+	close(udp_sock);
+	return 0;
 }
+
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd)
 {
 	int i;
