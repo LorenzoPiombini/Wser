@@ -727,7 +727,7 @@ static int process_request(struct Request *req, int cli_sock)
 #endif
 			if(load_resource(req->resource,&cont) == -1){
 				/*send not found response*/
-				if(generate_response(&res,404,&cont,req) == -1) break;
+				if(generate_response(&res,404,NULL,req) == -1) break;
 
 				int w = 0;
 				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
@@ -835,14 +835,14 @@ static int process_request(struct Request *req, int cli_sock)
 		return 0;
 	}
 	case POST:
-	{
 #if OWN_DB
+	{
 		struct Response res = {0};
 		struct Content cont = {0};
 
 		fprintf(stderr,"POST branch resource is %s\n",req->resource);		
 		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
-			if(generate_response(&res,404,&cont,req) == -1) break;
+			if(generate_response(&res,404,NULL,req) == -1) break;
 
 			int w = 0;
 			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
@@ -876,9 +876,8 @@ static int process_request(struct Request *req, int cli_sock)
 		}
 		clear_response(&res);
 		return 0;
-#endif
-
 	}
+#endif
 	case PUT:
 	case DELETE:
 	default:
