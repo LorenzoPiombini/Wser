@@ -263,13 +263,13 @@ loop:
 						{
 							struct Response res = {0};
 							/*send a bed request response*/
-							if(generate_response(&res,400,NULL,req) == -1) {
+							if(generate_response(&res,400,NULL,&req) == -1) {
 								clear_response(&res);
 								goto teardown;
 							}
 
 							int w = 0;
-							if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+							if((w = write_cli_SSL(events[i].data.fd,&res,cds)) == -1) {
 								clear_response(&res);
 								goto teardown;
 							}
@@ -280,7 +280,6 @@ loop:
 								goto teardown;
 							}
 							clear_response(&res);
-							clear_request(&req);
 							goto teardown;
 						}
 						case CLEAN_TEARDOWN:
@@ -294,8 +293,9 @@ loop:
 						clear_request(&req);
 						clean_connecion_data(cds,events[i].data.fd);
 						SSL_CTX_free(ctx);
+#if OWN_DB
 						close(db_sock);
-						ctx = NULL;
+#endif
 						exit(1);
 						}
 					}
@@ -306,7 +306,9 @@ teardown:
 			SSL_CTX_free(ctx);
 			ctx = NULL;
 			stop_monitor();
+#if OWN_DB
 			close(db_sock);
+#endif
 			exit(0);
 		}else if(child == -1){
 			/*PARENT*/
