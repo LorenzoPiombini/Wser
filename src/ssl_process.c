@@ -259,6 +259,30 @@ loop:
 							}
 							goto teardown;
 						}
+						case BAD_REQ:
+						{
+							struct Response res = {0};
+							/*send a bed request response*/
+							if(generate_response(&res,400,NULL,req) == -1) {
+								clear_response(&res);
+								goto teardown;
+							}
+
+							int w = 0;
+							if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) {
+								clear_response(&res);
+								goto teardown;
+							}
+
+							if(w == SSL_WRITE_E){
+								clear_response(&res);
+								return 1;
+								goto teardown;
+							}
+							clear_response(&res);
+							clear_request(&req);
+							goto teardown;
+						}
 						case CLEAN_TEARDOWN:
 							goto teardown;
 						case SSL_CLOSE:
