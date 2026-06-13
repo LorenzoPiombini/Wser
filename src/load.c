@@ -183,8 +183,6 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			 * the size of the next message then you allocate a buffer accordangly so 
 			 * you can be eficient
 			 * 
-			 *  NOTE: I do not think we need a refactor here as per 05/22/26
-			 *
 			 *
 			 * */
 			char read_buffer[MAX_CONT_SZ];
@@ -443,22 +441,37 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return -1;
 			}
 
-			char *read_buffer = (char*)malloc(EIGHTkib_limit*4);
+			/* 
+			 * THIS MINI PROTOCOL is IMPLEMENTED ONLY HERE
+			 * BECAUSE IS THE ONLY PATH THAT NEEDED THIS IMPLEMENTAION
+			 * SO FAR
+			 * */
+			uint32_t size_rb = 0;
+			if(read(data_sock,&size,sizeof(uint32_t)) == -1){
+				return -1;
+			}
+			
+			
+			char *read_buffer = (char*)malloc(size_rb+1);
 			if(!read_buffer) return -1;
-
-			/*read data from worker proc*/
-
-			memset(read_buffer,0,EIGHTkib_limit * 4);
-			ssize_t bread = 0;
-			if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){ 
+			memset(read_buffer,0,size_rb+1);
+			
+			/*write to work process: I'M READY TO READ*/
+			char ok = '\001';
+			if(write(data_sock,&ok,1) == -1){
 				free(read_buffer);
 				return -1;
 			}
 
-			if(bread == ((EIGHTkib_limit * 4) - 1)){
-				free(read_buffer);
-				fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
-				return -1;
+			/*read data from worker proc*/
+			ssize_t bread = 0, res = 0;
+			while(bread < size_rb){
+				res = read(data_sock,&read_buffer[bread],size_rb);
+				if(res == -1){
+					free(read_buffer);
+					return -1;
+				}
+				bread += res;
 			}
 
 			if(read_buffer[0] == '\0'){
@@ -466,15 +479,14 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return -1;
 			}
 
-			size_t mem_size = strlen(read_buffer) + 1;
-			cont->cnt_dy = (char*) malloc(mem_size);
+			cont->cnt_dy = (char*) malloc(size_rb + 1);
 			if(!cont->cnt_dy) {
 				free(read_buffer);
 				return -1;
 			}
 
-			cont->size = mem_size - 1;
-			if(snprintf(cont->cnt_dy,mem_size,"%s",read_buffer) == -1) {
+			cont->size = size;
+			if(snprintf(cont->cnt_dy,size_rb,"%s",read_buffer) == -1) {
 				free(read_buffer);
 				return -1;
 			}
