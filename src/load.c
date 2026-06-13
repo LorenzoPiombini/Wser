@@ -455,7 +455,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			char *read_buffer = (char*)malloc(size_rb+1);
 			if(!read_buffer){
 				char not_ok = '\000';
-				if(write(data_sock,not_ok,1) == -1){
+				if(write(data_sock,&not_ok,1) == -1){
 					return -1;
 				}
 				return -1;
@@ -468,7 +468,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			if(write(data_sock,&ok,1) == -1){
 				free(read_buffer);
 				char not_ok = '\000';
-				if(write(data_sock,not_ok,1) == -1){
+				if(write(data_sock,&not_ok,1) == -1){
 					return -1;
 				}
 				return -1;
