@@ -496,7 +496,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return -1;
 			}
 
-			cont->size = size;
+			cont->size = size_rb;
 			if(snprintf(cont->cnt_dy,size_rb,"%s",read_buffer) == -1) {
 				free(read_buffer);
 				return -1;
