@@ -447,7 +447,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			 * SO FAR
 			 * */
 			uint32_t size_rb = 0;
-			if(read(data_sock,&size,sizeof(uint32_t)) == -1){
+			if(read(data_sock,&size_rb,sizeof(uint32_t)) == -1){
 				return -1;
 			}
 			
