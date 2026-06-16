@@ -17,7 +17,7 @@ pid_t ssl_proc = -1;
 
 
 static void handler_main_process(int signo);
-static void handler_ssl_process(int signo);
+static void handler_ssl_process(int signo, siginfo_t *info);
 static void handler_db_process(int signo);
 
 int handle_sig_main_process()
