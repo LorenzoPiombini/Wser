@@ -51,7 +51,7 @@ int handle_sig_ssl_process()
 
 	struct sigaction act_child_process;
 	memset(&act_child_process,0,sizeof(struct sigaction));
-	act.sa_handler = &handler_ssl_process;
+	act.sa_sigaction = &handler_ssl_process;
 	act_child_process.sa_handler = SIG_IGN;
 	act_child_process.sa_flags = SA_NOCLDWAIT;
 	
