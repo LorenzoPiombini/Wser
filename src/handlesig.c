@@ -90,12 +90,13 @@ int handle_sig_db_process()
 	return 0;
 }
 
-static void handler_ssl_process(int signo)
+static void handler_ssl_process(int signo,siginfo_t *info)
 {
 	switch(signo){
 	case SIGINT:
 	case SIGTERM:
 	case SIGPIPE:
+		fprintf(stderr,"the ssl process recieved sig no %d legalay from pid %d",signo,info->si_pid);
 		if(db_proc != -1)
 			kill(db_proc,SIGTERM);
 		stop_listening(ssl_sock);
