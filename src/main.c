@@ -608,8 +608,9 @@ bad_request:
 
 									ws = 1;
 									break;
-								}
+								}	
 								if(ws){
+									kill(ssl_handle_child,SIGHUP);
 									clear_request(&req);
 									clear_response(&res);
 									stop_listening(cli_sock);
@@ -621,6 +622,7 @@ bad_request:
 								exit(1);
 							}
 
+							kill(ssl_handle_child,SIGHUP);
 							clear_request(&req);
 							clear_response(&res);
 							stop_listening(cli_sock);
