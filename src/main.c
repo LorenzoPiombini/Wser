@@ -38,14 +38,26 @@ int main(int argc, char **argv)
 	} 
 
 	/*start listening on port 80*/
-	int con = -1;
+	int con = -1, con80 = -1;
 	uint16_t port = secure ? 443 : 80;
 	if((con = listen_port_80(&port)) == -1){
 		fprintf(stderr,"(%s): cannot listen to port %d.\n",prog,port);
 		return -1;
 	}
 
+
 	fprintf(stdout,"(%s): listening on port %d...\n",prog,port);
+
+	if(secure){
+		/*listen also on port 80 to automate certificate renual and reloading */
+		port = 80;
+		if((con80 = listen_port_80(&port)) == -1){
+			fprintf(stderr,"(%s): cannot listen to port %d.\n",prog,port);
+			close(con);
+			return -1;
+		}
+	}
+
 
 	/* setup needed in case we use secure connection
 	 * to send client socket file descriptors to the SSL process
@@ -163,6 +175,11 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
+	if(con80 != -1){
+		if(add_socket_to_monitor(con80, EPOLLIN) == -1) 
+			return -1;
+	}
+
 	int cli_sock = -1;
 	struct Response res;
 	memset(&res,0,sizeof(struct Response));
@@ -489,12 +506,143 @@ bad_request:
 				clear_request(&req);
 				continue;
 
+			}else if(events[i].data.fd == con80){ /*handle renew certificate*/
+				int r = 0;
+				if((r = wait_for_connections(con80,&cli_sock,&req)) == -1) break;
 
+				if(r == EAGAIN || r == EWOULDBLOCK) continue;
+
+				pid_t child = fork();
+				if(child == -1){
+					/*server error*/
+				}
+
+				if(child == 0){
+					/*send response*/
+					if(r == BAD_REQ) {
+						/*send a bed request response*/
+						if(generate_response(&res,400,NULL,&req) == -1) break;
+
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res) != -1)){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+							if(ws){
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(0);
+							}
+							clear_response(&res);
+							stop_listening(cli_sock);
+							exit(1);
+						}
+
+						clear_request(&req);
+						clear_response(&res);
+						stop_listening(cli_sock);
+						exit(0);
+					}
+
+					struct Content cont;
+					memset(&cont,0,sizeof(struct Content));
+					switch(req.method){
+					case GET:
+					{
+						if(strstr(req.resource,AUTO_CERT_RENEWAL)){
+							/*load the file, and send it*/
+							if(load_resource(req.resource,&cont) == -1){
+								/*send not found response*/
+								if(generate_response(&res,404,&cont,&req) == -1) break;
+
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
+
+									if(ws){
+										stop_listening(cli_sock);
+										clear_request(&req);
+										clear_content(&cont);
+										exit(0);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							/*send 200 response*/
+							if(generate_response(&res,OK,&cont,&req) == -1) {
+								/*TODO: server errror*/
+								clear_content(&cont);
+								exit(1);
+							}
+
+							clear_content(&cont);
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+								if(ws){
+									clear_request(&req);
+									clear_response(&res);
+									stop_listening(cli_sock);
+									exit(0);
+								}
+								clear_request(&req);
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							clear_request(&req);
+							clear_response(&res);
+							stop_listening(cli_sock);
+							exit(0);
+						}else{
+							/*send 301 response*/
+
+						}
+						break;
+					}
+					default:
+					/*send 301 response*/
+					}
+					exit(0);
+				}
+
+				/*Parent*/
 			}else{ /*SECOND BRANCH*/
 				int r = 0;
 				printf("sock nr %d\n",events[i].data.fd);
 				if(events[i].events == EPOLLIN) {
-						if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
+					if((r = read_cli_sock(events[i].data.fd,&req)) == -1) break;
 					if(r == EAGAIN || r == EWOULDBLOCK) continue;
 
 					pid_t child = fork();
