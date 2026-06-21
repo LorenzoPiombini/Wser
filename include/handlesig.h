@@ -4,6 +4,7 @@
 
 #include <sys/types.h>
 
+extern int reload_certificate;
 extern int hdl_sock; 
 extern int ssl_sock;
 extern int db_sock;

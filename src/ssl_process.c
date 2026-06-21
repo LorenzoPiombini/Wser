@@ -133,7 +133,21 @@ int SSL_work_process(int data_sock)
 		
 		if((nfds = monitor_events()) == -1) goto teardown;
 		if(nfds == EINTR){
-			continue; /*change with goto teardwn in prod*/
+			if(reload_certificate){
+				SSL_CTX_free(ctx);
+				ctx = NULL;
+				if(init_SSL(&ctx) == -1){
+					fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
+					stop_monitor();
+#ifdef OWN_DB		
+					kill(db_proc,SIGINT);
+#endif
+					kill(getppid(),SIGINT);
+					exit(-1);
+				}
+				continue;
+			}
+			continue;/*you might want to change this to got teardown*/
 		}
 
 		int i;

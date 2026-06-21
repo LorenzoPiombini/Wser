@@ -5,7 +5,7 @@
 #include <string.h>
 #include "monitor.h"
 
-static char prog[] = "net_interface"; 
+static char prog[] = "wser"; 
 
 
 struct epoll_event ev;

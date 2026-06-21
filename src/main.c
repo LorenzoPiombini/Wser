@@ -627,17 +627,82 @@ bad_request:
 							exit(0);
 						}else{
 							/*send 301 response*/
+							if(generate_response(&res,301,NULL,&req) == -1) break;
 
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+
+								if(ws){
+									stop_listening(cli_sock);
+									clear_request(&req);
+									clear_content(&cont);
+									exit(0);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							clear_request(&req);
+							clear_content(&cont);
+							stop_listening(cli_sock);
+							exit(0);
 						}
 						break;
 					}
 					default:
-					/*send 301 response*/
+						/*send 301 response*/
+						if(generate_response(&res,301,NULL,&req) == -1) break;
+
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res) != -1)){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+
+
+							if(ws){
+								stop_listening(cli_sock);
+								clear_request(&req);
+								clear_content(&cont);
+								exit(0);
+							}
+
+							clear_request(&req);
+							clear_content(&cont);
+							stop_listening(cli_sock);
+							exit(1);
+						}
+
+						clear_request(&req);
+						clear_content(&cont);
+						stop_listening(cli_sock);
+						exit(0);
 					}
 					exit(0);
 				}
 
 				/*Parent*/
+				remove_socket_from_monitor(cli_sock);
+				stop_listening(cli_sock);
+				clear_request(&req);
+				continue;
 			}else{ /*SECOND BRANCH*/
 				int r = 0;
 				printf("sock nr %d\n",events[i].data.fd);

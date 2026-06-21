@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include "response.h"
+#include "default.h"
 
 static char prog[] = "Wser";
 static int set_up_headers(struct Header *headers, int status, size_t body_size);
@@ -11,6 +12,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 static int parse_body(struct Content *cont, struct Response *res);
 static int not_found_header(char *header, struct Request *req, struct Response *res);
 static int bad_request_header(char *header);
+static int moved_permanently_header(char *header);
 static int options_response_header(char *header,int status);
 static char *month_parser(int month);
 static char *day_parser(int day);
@@ -40,17 +42,20 @@ static char *create_response_message(struct Response *res, int status, struct Co
 	if(set_up_headers(&res->headers,status,cont == NULL ? 0 :cont->size) == -1) return NULL;
 	static char h[STD_HD_L] = {0};
 
-	if(status == 404){
+	switch(status){
+	case 404:
 		if(not_found_header(h,req,res) == -1) return NULL;
-
 		return h;
-	}
-
-	if(status == 400){
+	case 400:
 		if(bad_request_header(h) == -1) return NULL;
-		
 		return h;
+	case 301:
+		if(moved_permanently_header(h) == -1) return NULL;
+		return h;
+	default:
+		break;
 	}
+
 	if(req->method == OPTIONS){
 		if(options_response_header(h,status) == -1) return NULL;
 
@@ -126,7 +131,7 @@ static int set_up_headers(struct Header *headers, int status, size_t body_size)
 	set_status_and_phrase(headers,(uint16_t)status);
 	strncpy(headers->protocol_vs,STD_PTC,STD_LEN_PTC);
 
-	if(status != 400){ 
+	if(status > 400 || status < 203){ 
 		char *date = date_formatter();
 		if(!date) return -1;
 		strncpy(headers->date,date,50); 
@@ -396,6 +401,18 @@ static int bad_request_header(char *header)
 	return 0;
 }
 
+static int moved_permanently_header(char *header)
+{
+	if(snprintf(header,1024,"HTTP/1.1 301 Moved Permanently\r\n"\
+							"Location: %s\r\n"\
+    						"Content-Length: 0\r\n"\
+        					"Connection: close\r\n\r\n",REDIRECT_DEFAULT_DOMAIN) == -1){
+		fprintf(stderr,"(%s): cannot form 301 response.",prog);
+		return -1;
+	}
+
+	return 0;
+}
 
 static int options_response_header(char *header, int status)
 {

@@ -22,9 +22,9 @@
 	#define INT_PROC_SOCK_DB  "/tmp/db_operation.socket"
 #endif /*OWN_DB -make flag-*/
 
-#define QR (uint16_t)32768
-/*MACRO TO MANIPULATE THE DNS HEADER */
-#define SET_QR(n) 			((n) |= 0x8000)
+/*MACRO TO MANIPULATE THE DNS HEADER */ 
+#define QR ((uint16_t)0 | 0x8000)
+#define SET_QR(n) 			((n) |= 0x8000 )
 #define SET_OPCODE(n,val) 	((n) = ((n) &= 0x8FFF) | (((val) & 0x0F) << 11))
 #define SET_AA(n) 			((n) |= 0x0400)
 #define SET_TC(n) 			((n) |= 0x0200)
@@ -33,12 +33,19 @@
 #define SET_Z(n)  			((n) &= 0xFF2F )/*must be 0 RFC 1035*/
 #define SET_RDCODE(n,val) 	((n) = ((n) &= 0xFFF0 ) | (((val) & 0x0F )))
 #define GET_QR(n)           ((n) & 0x8000)
+
 #define GET_OPCODE(n)       (((n) & 0x7800) >> 11)
 #define GET_AA(n)           ((n) & 0x0400)
-#define GET_TC(n)           ((n) & 0x0200)
+#define GET_TC(n)           (((n) & 0x0200) >> 9)
 #define GET_RD(n)           ((n) & 0x0100)
 #define GET_RA(n)           ((n) & 0x0080)
 #define GET_Z(n)            (((n) & 0x0070) >> 4)
+#define NO_ERROR 			0
+#define FORMAT_ERROR 		1 
+#define SERVER_FAILURW      2               
+#define NAME_ERROR			3
+#define NOT_IMPLEMENTED     4 
+#define REFUSE  			5
 #define GET_RCODE(n)        ((n) & 0x000F)
 #define IS_A_POINTER(n)		((n) & 0xC000)
 
@@ -123,6 +130,7 @@ int init_SSL(SSL_CTX **ctx);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
 int listen_UNIX_socket(int opt, char *sock_path);
+uint16_t convert_string_to_type(char *type);
 int DNS_query(char *domain, uint16_t type);
 int connect_UNIX_socket(int opt, char *sock_path);
 void clean_connecion_data(struct Connection_data *cd, int sock);

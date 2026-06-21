@@ -12,6 +12,7 @@ static char prog[] = "wser";
 int hdl_sock = -1;
 int ssl_sock = -1;
 int db_sock = -1;
+int reload_certificate = 0; /*CA certificate automation*/
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;
 
@@ -56,6 +57,7 @@ int handle_sig_ssl_process()
 	act_child_process.sa_flags = SA_NOCLDWAIT;
 	
 	if(/*sigaction(SIGSEGV, &act, NULL) == -1 ||*/
+			sigaction(SIGHUP,&act,NULL) == -1 || 
 			sigaction(SIGINT,&act,NULL) == -1 || 
 			sigaction(SIGPIPE,&act,NULL) == -1 ||
 			sigaction(SIGTERM,&act,NULL) == -1 ||
@@ -93,6 +95,10 @@ int handle_sig_db_process()
 static void handler_ssl_process(int signo,siginfo_t *info)
 {
 	switch(signo){
+	case SIGHUP:
+		/*Reload certificate*/
+		reload_certificate = 1;
+		break;
 	case SIGINT:
 	case SIGTERM:
 	case SIGPIPE:
