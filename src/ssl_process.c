@@ -134,6 +134,7 @@ int SSL_work_process(int data_sock)
 		if((nfds = monitor_events()) == -1) goto teardown;
 		if(nfds == EINTR){
 			if(reload_certificate){
+				reload_certificate = 0;
 				SSL_CTX_free(ctx);
 				ctx = NULL;
 				if(init_SSL(&ctx) == -1){

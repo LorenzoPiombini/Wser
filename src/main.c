@@ -716,6 +716,186 @@ bad_request:
 					}
 
 					if(child == 0){
+						if(events[i].data.fd == con80){
+
+							if(r == BAD_REQ) {
+								/*send a bed request response*/
+								if(generate_response(&res,400,NULL,&req) == -1) break;
+
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+									if(ws){
+										clear_response(&res);
+										stop_listening(cli_sock);
+										exit(0);
+									}
+									clear_response(&res);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								clear_request(&req);
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(0);
+							}
+
+							struct Content cont;
+							memset(&cont,0,sizeof(struct Content));
+							switch(req.method){
+								case GET:
+									{
+										if(strstr(req.resource,AUTO_CERT_RENEWAL)){
+											/*load the file, and send it*/
+											if(load_resource(req.resource,&cont) == -1){
+												/*send not found response*/
+												if(generate_response(&res,404,&cont,&req) == -1) break;
+
+												int w = 0;
+												if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+												if(w == EAGAIN || w == EWOULDBLOCK){
+													uint8_t ws = 0;
+													while((w = write_cli_sock(cli_sock,&res) != -1)){
+														if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+														ws = 1;
+														break;
+													}
+
+
+													if(ws){
+														stop_listening(cli_sock);
+														clear_request(&req);
+														clear_content(&cont);
+														exit(0);
+													}
+
+													clear_request(&req);
+													clear_content(&cont);
+													stop_listening(cli_sock);
+													exit(1);
+												}
+
+												clear_request(&req);
+												clear_content(&cont);
+												stop_listening(cli_sock);
+												exit(1);
+											}
+
+											/*send 200 response*/
+											if(generate_response(&res,OK,&cont,&req) == -1) {
+												/*TODO: server errror*/
+												clear_content(&cont);
+												exit(1);
+											}
+
+											clear_content(&cont);
+											int w = 0;
+											if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+											if(w == EAGAIN || w == EWOULDBLOCK){
+												uint8_t ws = 0;
+												while((w = write_cli_sock(cli_sock,&res) != -1)){
+													if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+													ws = 1;
+													break;
+												}
+												if(ws){
+													clear_request(&req);
+													clear_response(&res);
+													stop_listening(cli_sock);
+													exit(0);
+												}
+												clear_request(&req);
+												clear_response(&res);
+												stop_listening(cli_sock);
+												exit(1);
+											}
+
+											clear_request(&req);
+											clear_response(&res);
+											stop_listening(cli_sock);
+											exit(0);
+										}else{
+											/*send 301 response*/
+											if(generate_response(&res,301,NULL,&req) == -1) break;
+
+											int w = 0;
+											if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+											if(w == EAGAIN || w == EWOULDBLOCK){
+												uint8_t ws = 0;
+												while((w = write_cli_sock(cli_sock,&res) != -1)){
+													if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+													ws = 1;
+													break;
+												}
+
+
+												if(ws){
+													stop_listening(cli_sock);
+													clear_request(&req);
+													clear_content(&cont);
+													exit(0);
+												}
+
+												clear_request(&req);
+												clear_content(&cont);
+												stop_listening(cli_sock);
+												exit(1);
+											}
+
+											clear_request(&req);
+											clear_content(&cont);
+											stop_listening(cli_sock);
+											exit(0);
+										}
+										break;
+									}
+								default:
+									/*send 301 response*/
+									if(generate_response(&res,301,NULL,&req) == -1) break;
+
+									int w = 0;
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									if(w == EAGAIN || w == EWOULDBLOCK){
+										uint8_t ws = 0;
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+											ws = 1;
+											break;
+										}
+
+
+										if(ws){
+											stop_listening(cli_sock);
+											clear_request(&req);
+											clear_content(&cont);
+											exit(0);
+										}
+
+										clear_request(&req);
+										clear_content(&cont);
+										stop_listening(cli_sock);
+										exit(1);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(0);
+							}
+							exit(0);
+						}
 						printf("in the child!\n");
 						printf("%s\n",req.req);
 						if(r == BAD_REQ) {
