@@ -268,6 +268,115 @@ int main(int argc, char **argv)
 					memset(&cont,0,sizeof(struct Content));
 					switch(req.method){
 					case GET:
+
+						if(strstr(req.resource,AUTO_CERT_RENEWAL)){
+							/*load the file, and send it*/
+							if(load_resource(req.resource,&cont) == -1){
+								/*send not found response*/
+								if(generate_response(&res,404,&cont,&req) == -1) break;
+
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
+
+									if(ws){
+										stop_listening(cli_sock);
+										clear_request(&req);
+										clear_content(&cont);
+										exit(0);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							/*send 200 response*/
+							if(generate_response(&res,OK,&cont,&req) == -1) {
+								/*TODO: server errror*/
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							clear_content(&cont);
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+								if(ws){
+									kill(ssl_handle_child,SIGHUP);
+									clear_request(&req);
+									clear_response(&res);
+									stop_listening(cli_sock);
+									exit(0);
+								}
+								clear_request(&req);
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							kill(ssl_handle_child,SIGHUP);
+							clear_request(&req);
+							clear_response(&res);
+							stop_listening(cli_sock);
+							exit(0);
+						}else if(secure){
+							/*send 301 response*/
+							if(generate_response(&res,301,NULL,&req) == -1) break;
+
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+
+								if(ws){
+									stop_listening(cli_sock);
+									clear_request(&req);
+									clear_content(&cont);
+									exit(0);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							clear_request(&req);
+							clear_content(&cont);
+							stop_listening(cli_sock);
+							exit(0);
+						}
 						/* Load content */	
 						if((strstr(req.resource,".js")
 							|| strstr(req.resource,".html")
@@ -398,6 +507,115 @@ int main(int argc, char **argv)
 						exit(0);
 					case OPTIONS:
 					{
+
+						if(strstr(req.resource,AUTO_CERT_RENEWAL)){
+							/*load the file, and send it*/
+							if(load_resource(req.resource,&cont) == -1){
+								/*send not found response*/
+								if(generate_response(&res,404,&cont,&req) == -1) break;
+
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
+
+									if(ws){
+										stop_listening(cli_sock);
+										clear_request(&req);
+										clear_content(&cont);
+										exit(0);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							/*send 200 response*/
+							if(generate_response(&res,OK,&cont,&req) == -1) {
+								/*TODO: server errror*/
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							clear_content(&cont);
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+								if(ws){
+									kill(ssl_handle_child,SIGHUP);
+									clear_request(&req);
+									clear_response(&res);
+									stop_listening(cli_sock);
+									exit(0);
+								}
+								clear_request(&req);
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							kill(ssl_handle_child,SIGHUP);
+							clear_request(&req);
+							clear_response(&res);
+							stop_listening(cli_sock);
+							exit(0);
+						}else if(secure){
+							/*send 301 response*/
+							if(generate_response(&res,301,NULL,&req) == -1) break;
+
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res) != -1)){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+
+								if(ws){
+									stop_listening(cli_sock);
+									clear_request(&req);
+									clear_content(&cont);
+									exit(0);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(1);
+							}
+
+							clear_request(&req);
+							clear_content(&cont);
+							stop_listening(cli_sock);
+							exit(0);
+						}
 						size_t s = strlen(req.origin);
 						if(s != strlen(ORIGIN_DEF)) goto bad_request;
 
@@ -467,6 +685,7 @@ bad_request:
 					case PUT:
 					default:
 					{
+
 							if(generate_response(&res,400,NULL,&req) == -1) break;
 
 							clear_request(&req);
@@ -678,7 +897,6 @@ bad_request:
 								break;
 							}
 
-
 							if(ws){
 								stop_listening(cli_sock);
 								clear_request(&req);
@@ -796,6 +1014,7 @@ bad_request:
 											if(generate_response(&res,OK,&cont,&req) == -1) {
 												/*TODO: server errror*/
 												clear_content(&cont);
+												stop_listening(cli_sock);
 												exit(1);
 											}
 
@@ -811,6 +1030,7 @@ bad_request:
 													break;
 												}
 												if(ws){
+													kill(ssl_handle_child,SIGHUP);
 													clear_request(&req);
 													clear_response(&res);
 													stop_listening(cli_sock);
@@ -822,6 +1042,7 @@ bad_request:
 												exit(1);
 											}
 
+											kill(ssl_handle_child,SIGHUP);
 											clear_request(&req);
 											clear_response(&res);
 											stop_listening(cli_sock);
@@ -909,6 +1130,114 @@ bad_request:
 						memset(&cont,0,sizeof(struct Content));
 						switch(req.method){
 						case GET:
+							if(strstr(req.resource,AUTO_CERT_RENEWAL)){
+								/*load the file, and send it*/
+								if(load_resource(req.resource,&cont) == -1){
+									/*send not found response*/
+									if(generate_response(&res,404,&cont,&req) == -1) break;
+
+									int w = 0;
+									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									if(w == EAGAIN || w == EWOULDBLOCK){
+										uint8_t ws = 0;
+										while((w = write_cli_sock(cli_sock,&res) != -1)){
+											if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+											ws = 1;
+											break;
+										}
+
+
+										if(ws){
+											stop_listening(cli_sock);
+											clear_request(&req);
+											clear_content(&cont);
+											exit(0);
+										}
+
+										clear_request(&req);
+										clear_content(&cont);
+										stop_listening(cli_sock);
+										exit(1);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								/*send 200 response*/
+								if(generate_response(&res,OK,&cont,&req) == -1) {
+									/*TODO: server errror*/
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								clear_content(&cont);
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+									if(ws){
+										kill(ssl_handle_child,SIGHUP);
+										clear_request(&req);
+										clear_response(&res);
+										stop_listening(cli_sock);
+										exit(0);
+									}
+									clear_request(&req);
+									clear_response(&res);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								kill(ssl_handle_child,SIGHUP);
+								clear_request(&req);
+								clear_response(&res);
+								stop_listening(cli_sock);
+								exit(0);
+							}else if(secure){
+								/*send 301 response*/
+								if(generate_response(&res,301,NULL,&req) == -1) break;
+
+								int w = 0;
+								if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+								if(w == EAGAIN || w == EWOULDBLOCK){
+									uint8_t ws = 0;
+									while((w = write_cli_sock(cli_sock,&res) != -1)){
+										if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+										ws = 1;
+										break;
+									}
+
+
+									if(ws){
+										stop_listening(cli_sock);
+										clear_request(&req);
+										clear_content(&cont);
+										exit(0);
+									}
+
+									clear_request(&req);
+									clear_content(&cont);
+									stop_listening(cli_sock);
+									exit(1);
+								}
+
+								clear_request(&req);
+								clear_content(&cont);
+								stop_listening(cli_sock);
+								exit(0);
+							}
 								/* Load content */	
 								if(load_resource(req.resource,&cont) == -1){
 									/*send not found response*/

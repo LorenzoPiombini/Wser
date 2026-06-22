@@ -12,7 +12,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 static int parse_body(struct Content *cont, struct Response *res);
 static int not_found_header(char *header, struct Request *req, struct Response *res);
 static int bad_request_header(char *header);
-static int moved_permanently_header(char *header);
+static int moved_permanently_header(char *header,struct Request *r);
 static int options_response_header(char *header,int status);
 static char *month_parser(int month);
 static char *day_parser(int day);
@@ -50,7 +50,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 		if(bad_request_header(h) == -1) return NULL;
 		return h;
 	case 301:
-		if(moved_permanently_header(h) == -1) return NULL;
+		if(moved_permanently_header(h,req) == -1) return NULL;
 		return h;
 	default:
 		break;
@@ -401,16 +401,15 @@ static int bad_request_header(char *header)
 	return 0;
 }
 
-static int moved_permanently_header(char *header)
+static int moved_permanently_header(char *header,struct Request *r)
 {
 	if(snprintf(header,1024,"HTTP/1.1 301 Moved Permanently\r\n"\
-							"Location: %s\r\n"\
+							"Location: %s%s\r\n"\
     						"Content-Length: 0\r\n"\
-        					"Connection: close\r\n\r\n",REDIRECT_DEFAULT_DOMAIN) == -1){
+        					"Connection: close\r\n\r\n",REDIRECT_DEFAULT_DOMAIN,r->resource) == -1){
 		fprintf(stderr,"(%s): cannot form 301 response.",prog);
 		return -1;
 	}
-
 	return 0;
 }
 
