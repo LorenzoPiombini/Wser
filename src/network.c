@@ -38,6 +38,7 @@ static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
 static void debugf(char *fmt);
 static void format_domain_for_query(char *domain, uint8_t *formatted_domain);
+static char *convert_query_format_domain_to_string(uint8_t* formatted_domain);
 #define LISTEN_BACKLOG 50
 #define MAX_BUF_SIZE 2048
 
@@ -198,6 +199,25 @@ int listen_UNIX_socket(int opt, char *sock_path)
 	return sock_un;
 }
 
+static char *convert_query_format_domain_to_string(uint8_t* formatted_domain)
+{
+	char *p = formatted_domain;	
+	char *dom = malloc(255);
+	if(!dom)
+		return NULL;
+
+	char *start = &dom[0];
+	for(;*p;p++){
+		if(p == (char*)&formatted_domain[0]){
+			continue;
+		}else if((int)*p < 0x41){
+			*dom++ = '.';
+			continue;
+		}
+		*dom++ = *p;
+	}
+	return start;
+}
 static void format_domain_for_query(char *domain, uint8_t *formatted_domain)
 {
 	size_t s = strlen(domain);
@@ -222,6 +242,33 @@ static void format_domain_for_query(char *domain, uint8_t *formatted_domain)
 	buf[x] = (uint8_t)i;
 	memcpy(formatted_domain,buf,255);
 }
+uint16_t convert_string_to_type(char *type){
+
+	if(strlen(type) == 1 && (strncmp(type,"A",1) == 0))
+		return (uint16_t)A;
+	if(strlen(type) == 2 && (strncmp(type,"NS",2) == 0))
+		return (uint16_t)NS;
+	if(strlen(type) == 5 && (strncmp(type,"CNAME",5) == 0))
+		return (uint16_t)CNAME;
+	if(strlen(type) == 3 && (strncmp(type,"SOA",3) == 0))
+		return (uint16_t)CNAME;
+	if(strlen(type) == 2 && (strncmp(type,"MB",2) == 0))
+		return (uint16_t)MB;
+	if(strlen(type) == 2 && (strncmp(type,"MG",2) == 0))
+		return (uint16_t)MG;
+	if(strlen(type) == 2 && (strncmp(type,"MR",2) == 0))
+		return (uint16_t)MR;
+	if(strlen(type) == 2 && (strncmp(type,"MX",2) == 0))
+		return (uint16_t)MX;
+	if(strlen(type) == 3 && (strncmp(type,"TXT",3) == 0))
+		return (uint16_t)TXT;
+	if(strlen(type) == 5 && (strncmp(type,"HINFO",5) == 0))
+		return (uint16_t)HINFO;
+	if(strlen(type) == 5 && (strncmp(type,"MINFO",5) == 0))
+		return (uint16_t)MINFO;
+
+	return 0;
+}
 int DNS_query(char *domain, uint16_t type)
 {
 
@@ -234,7 +281,7 @@ int DNS_query(char *domain, uint16_t type)
 	header.id = htons(header.id);
 	SET_RD(header.fields);
 	SET_Z(header.fields);
-
+	header.fields = htons(header.fields);
 	header.qdcount = htons((uint16_t)1);
 
 	struct DNS_question question= {0};
@@ -246,7 +293,7 @@ int DNS_query(char *domain, uint16_t type)
 	int qname_sz =(int) strlen((char*)question.qname);
 	
 	memcpy(b,&header,sizeof(header));
-	memcpy(&b[sizeof(header)],question.qname,qname_sz);/*+1 is to respect the format of QNAME*/
+	memcpy(&b[sizeof(header)],question.qname,qname_sz+1);/*+1 is to respect the format of QNAME*/
 	memcpy(&b[sizeof(header)+qname_sz+1],&question.qtype,sizeof(uint16_t));
 	memcpy(&b[sizeof(header)+qname_sz+1+sizeof(uint16_t)],&question.qclass,sizeof(uint16_t));
 
@@ -259,8 +306,9 @@ int DNS_query(char *domain, uint16_t type)
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(53); /*port number as per RFC 1035*/ 
 	addr.sin_addr.s_addr = inet_addr(DNS_SERVER) ;
+	uint16_t size_of_query =(uint16_t) (sizeof(header)+qname_sz+1+(2*sizeof(uint16_t)));
 
-	if(sendto(udp_sock,b,sizeof(header)+qname_sz+1+(2*sizeof(uint16_t)),0,(struct sockaddr*)&addr,(socklen_t)sizeof(addr)) == -1){
+	if(sendto(udp_sock,b,size_of_query,0,(struct sockaddr*)&addr,(socklen_t)sizeof(addr)) == -1){
 		close(udp_sock);
 		return -1;
 	}
@@ -280,42 +328,148 @@ int DNS_query(char *domain, uint16_t type)
 	if(res_h.id != header.id)
 		return -1;
 
+	res_h.fields = ntohs(res_h.fields);
+	uint8_t * big_raw_response = NULL;
+	if(GET_TC(res_h.fields) == (uint8_t)1){
+		printf("data is truncated\n");
+		close(udp_sock);
+		udp_sock = -1;
+		
+		/*create TCP socket*/
+		int tcp_sock = socket(AF_INET,SOCK_STREAM,0);
+		if(tcp_sock == -1)
+			return -1;
+	
+		if(connect(tcp_sock,(struct sockaddr*)&addr,(socklen_t)sizeof(addr)) == -1)
+			return -1;
+
+		uint8_t b_for_tcp[size_of_query+2];
+		memset(b_for_tcp,0,size_of_query+2);
+		uint16_t c = htons(size_of_query);
+		memcpy(b_for_tcp,&c,sizeof(uint16_t));
+		memcpy(&b_for_tcp[sizeof(uint16_t)],b,size_of_query);
+		 
+		big_raw_response = malloc(1024*4);
+		if(!big_raw_response)
+			return -1;
+		ssize_t br = 0, bw = 0;
+		if((bw = write(tcp_sock,b_for_tcp,size_of_query+2))== -1)
+			return -1;
+		if((br = read(tcp_sock,big_raw_response,1024*4)) == -1)
+			return -1;
+		uint16_t  size = ntohs(*(uint16_t*)big_raw_response);
+	
+
+		close(tcp_sock);
+		memset(&res_h,0,sizeof(struct DNS_header));
+		res_h = *(struct DNS_header*)&big_raw_response[2];
+		if(res_h.id != header.id){
+			free(big_raw_response);
+			return -1;
+		}	
+
+		bread += sizeof(uint16_t);
+		if(GET_TC(res_h.fields) == (uint8_t)1){
+			printf("data is truncated even with TCP\n");
+			free(big_raw_response);
+			return -1;
+		}
+	}
+
+	if(res_h.ancount == 0){
+		printf("no record in the answer\n");
+		if(big_raw_response)
+			free(big_raw_response);
+		else
+			close(udp_sock);
+		return -1;
+	}
+
+	if((uint16_t)GET_QR(res_h.fields) != QR){
+		if(big_raw_response)
+			free(big_raw_response);
+		else
+			close(udp_sock);
+		return -1;
+	}
+
+	printf("QR -> response.\n");
+	printf("OPCODE -> %s - %s.\n",((uint8_t)GET_OPCODE(res_h.fields)) == 0 ? "QUERY" : "ERROR!",
+				(uint8_t)GET_RCODE(res_h.fields) == (uint8_t)NO_ERROR ? "NOERROR":"ERROR!");
+
 	bread += (int)sizeof(struct DNS_header);
-	memcpy(res_q.qname,&raw_response[bread],qname_sz+1);
+	memcpy(res_q.qname,
+			!big_raw_response ? &raw_response[bread] : &big_raw_response[bread],qname_sz+1);
 	bread += qname_sz +1;
 	
-	res_q.qtype = *(uint16_t*)&raw_response[bread];
+	res_q.qtype = *(uint16_t*) (!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]);
 	bread += (int)sizeof(uint16_t);
 	
-	if((uint16_t)GET_QR(res_h.fields) != QR)
-		return -1;
 
-	/*2 is server status, so if it is not an answer exit*/
-	if((uint8_t)GET_OPCODE(res_h.fields) == (uint8_t)2)
-		return -1;
 
-	res_q.qclass = *(uint16_t*)&raw_response[bread];
+	res_q.qclass = *(uint16_t*) (!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]);
 	bread += (int)sizeof(uint16_t);
 	
 	
 	/*RESOURCE RECORD*/
 	uint16_t offset = 0;
-	uint16_t p = ntohs(*(uint16_t*)&raw_response[bread]);
+	uint16_t p = ntohs(*(uint16_t*) (!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]));
 	
 	if(IS_A_POINTER(p)){
 		/*get the offset of the domain in the message*/
 		offset = p & 0x0FFF; 
 		bread += sizeof(uint16_t);	
+		uint8_t name[qname_sz+1];
+		memset(name,0,qname_sz+1);
+
+		memcpy(name,!big_raw_response ? &raw_response[offset] : &big_raw_response[bread],qname_sz+1);
+		char *dom_converted = convert_query_format_domain_to_string(name);
+		if(!dom_converted){
+			if(big_raw_response)
+				free(big_raw_response);
+			else
+				close(udp_sock);
+			return -1;
+		}
+
+		printf("domain -> %s\n",dom_converted);
+		free(dom_converted);
 	}
-	res_r.type = *(uint16_t*)&raw_response[bread];
+
+	res_r.type = *(uint16_t*)(!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]);
 	bread += sizeof(uint16_t);	
-	res_r.class = *(uint16_t*)&raw_response[bread];
+	res_r.class = *(uint16_t*)(!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]);
 	bread += sizeof(uint16_t);	
-	if(res_r.type != question.qtype || res_r.class != question.qclass)
+
+	if(res_r.type != question.qtype || res_r.class != question.qclass){
+		if(big_raw_response)
+			free(big_raw_response);
+		else
+			close(udp_sock);
 		return -1;
+	}
 
+	res_r.ttl = *(uint32_t*) (!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]);
+	bread += sizeof(uint32_t);	
+	res_r.rdlength = ntohs(*(uint16_t*)(!big_raw_response ? &raw_response[bread] : &big_raw_response[bread]));
+	bread += sizeof(uint16_t);
+	
+	uint32_t ip_address = *(uint32_t*) (!big_raw_response ? &raw_response[bread] :&big_raw_response[bread]);
 
-	close(udp_sock);
+	// 32 bit integer 
+	// 0000 0000 0000 0000 0000 0000 0000 0000 
+	// i did not swap from big endian to little endian that is why
+	// the printf statement is reversed
+	uint8_t f = (uint8_t)((ip_address & 0xFF000000) >> 24);
+	uint8_t s = (uint8_t)((ip_address & 0x00FF0000) >> 16);
+	uint8_t t = (uint8_t)((ip_address & 0x0000FF00) >> 8);
+	uint8_t fr = (uint8_t)(ip_address & 0x000000FF);
+	printf("ip4 address -> %u.%u.%u.%u\n",fr,t,s,f);
+
+	if(big_raw_response)
+		free(big_raw_response);
+	else
+		close(udp_sock);
 	return 0;
 }
 
