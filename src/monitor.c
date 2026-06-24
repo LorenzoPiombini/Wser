@@ -86,7 +86,6 @@ int remove_socket_from_monitor(int sock)
 	errno = 0;
 	if (epoll_ctl(epollfd, EPOLL_CTL_DEL, sock,NULL) == -1) {
                fprintf(stderr,"(%s): cannot remove socket from monitor: %s\n",prog,strerror(errno));
-	       close(sock);
 	       if (free_socket_list(sock) == -1) {
 		       fprintf(stderr,"(%s):socket %d not found in list.\n",prog,sock);
 		       return -1;
@@ -99,7 +98,6 @@ int remove_socket_from_monitor(int sock)
 		return -1;
 	}
 
-	close(sock);
 	return 0;
 }
 

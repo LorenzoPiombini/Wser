@@ -21,6 +21,7 @@
 #include "end_points.h"
 #include "lua_start.h"
 #include "ctype.h"
+
 #endif
 
 char prog[] = "wser";
@@ -597,6 +598,7 @@ bad_request:
 							if(generate_response(&res,OK,&cont,&req) == -1) {
 								/*TODO: server errror*/
 								clear_content(&cont);
+								stop_listening(cli_sock);
 								exit(1);
 							}
 
@@ -646,6 +648,7 @@ bad_request:
 
 
 								if(ws){
+									remove_socket_from_monitor(cli_sock);
 									stop_listening(cli_sock);
 									clear_request(&req);
 									clear_content(&cont);
@@ -921,16 +924,15 @@ bad_request:
 									if(generate_response(&res,404,&cont,&req) == -1) break;
 
 									int w = 0;
-									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+									if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
 									if(w == EAGAIN || w == EWOULDBLOCK){
 										uint8_t ws = 0;
-										while((w = write_cli_sock(cli_sock,&res)) != -1){
+										while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
 											if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
 											ws = 1;
 											break;
 										}
-
 
 										if(ws){
 											stop_listening(events[i].data.fd);
@@ -1010,70 +1012,29 @@ bad_request:
 										clear_content(&cont);
 										exit(0);
 									}
-
 									clear_request(&req);
 									clear_content(&cont);
 									stop_listening(events[i].data.fd);
 									exit(1);
 								}
-
 								clear_request(&req);
 								clear_content(&cont);
 								stop_listening(events[i].data.fd);
 								exit(0);
 							}
-								/* Load content */	
-								if(load_resource(req.resource,&cont) == -1){
-									/*send not found response*/
+							/* Load content */	
+							if(load_resource(req.resource,&cont) == -1){
+								/*send not found response*/
 
-									if(generate_response(&res,404,NULL,&req) == -1) break;
-
-
-									clear_content(&cont);
-									clear_request(&req);
-									int w = 0;
-									if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-									if(w == EAGAIN || w == EWOULDBLOCK){
-										uint8_t ws = 0;
-										while((w = write_cli_sock(events[i].data.fd,&res) != -1)){
-											if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-											ws = 1;
-											break;
-										}
-
-										if(ws){
-											stop_listening(cli_sock);
-											clear_request(&req);
-											clear_content(&cont);
-											exit(0);
-										}
-
-										stop_listening(cli_sock);
-										clear_request(&req);
-										clear_content(&cont);
-										exit(1);
-									}
-								}
-								/* send response */
-								if(generate_response(&res,OK,&cont,&req) == -1){
-									/*TODO:server error 500*/
-									clear_response(&res);		
-									exit(0);
-								}
+								if(generate_response(&res,404,NULL,&req) == -1) break;
 
 								clear_content(&cont);
-								printf("2nd branch: response header is\n%s\n",res.header_str);
-								printf("writing to client.\n");
+								clear_request(&req);
 								int w = 0;
-								if(( w = write_cli_sock(events[i].data.fd,&res)) == -1){
-										stop_listening(events[i].data.fd);
-										clear_response(&res);		
-										exit(0);
-								}
+								if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
 								if(w == EAGAIN || w == EWOULDBLOCK){
 									uint8_t ws = 0;
-									while((w = write_cli_sock(cli_sock,&res)) != -1){
+									while((w = write_cli_sock(events[i].data.fd,&res) != -1)){
 										if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
 										ws = 1;
@@ -1082,48 +1043,86 @@ bad_request:
 
 									if(ws){
 										stop_listening(events[i].data.fd);
-										clear_response(&res);		
+										clear_request(&req);
+										clear_content(&cont);
 										exit(0);
 									}
 
 									stop_listening(events[i].data.fd);
-									clear_response(&res);		
+									clear_request(&req);
+									clear_content(&cont);
 									exit(1);
 								}
-								/*TODO: can we delete this??*/
-								if(req.d_req)
-									fprintf(stdout,"%s\n",req.d_req);
-								else
-									fprintf(stdout,"%s\n",req.req);
-
-
-								clear_request(&req);
+							}
+							/* send response */
+							if(generate_response(&res,OK,&cont,&req) == -1){
+								/*TODO:server error 500*/
 								clear_response(&res);		
 								stop_listening(events[i].data.fd);
 								exit(0);
-							default:
-								/* TODO:send a bad request response*/
+							}
+
+							clear_content(&cont);
+							printf("2nd branch: response header is\n%s\n",res.header_str);
+							printf("writing to client.\n");
+							int w = 0;
+							if(( w = write_cli_sock(events[i].data.fd,&res)) == -1){
 								stop_listening(events[i].data.fd);
-								clear_request(&req);
 								clear_response(&res);		
 								exit(0);
+							}
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+								if(ws){
+									stop_listening(events[i].data.fd);
+									clear_response(&res);		
+									exit(0);
+								}
+
+								stop_listening(events[i].data.fd);
+								clear_response(&res);		
+								exit(1);
+							}
+							/*TODO: can we delete this??*/
+							if(req.d_req)
+								fprintf(stdout,"%s\n",req.d_req);
+							else
+								fprintf(stdout,"%s\n",req.req);
+
+
+							clear_request(&req);
+							clear_response(&res);		
+							stop_listening(events[i].data.fd);
+							exit(0);
+						default:
+							/* TODO:send a bad request response*/
+							stop_listening(events[i].data.fd);
+							clear_request(&req);
+							clear_response(&res);		
+							exit(0);
 						}
 					}
 					/*parent*/
 					remove_socket_from_monitor(events[i].data.fd);
-					clear_request(&req);
 					stop_listening(events[i].data.fd);
+					clear_request(&req);
 					continue;
 				}else if(events[i].events == EPOLLOUT) {
 					int w = 0;
 					if(( w = write_cli_sock(events[i].data.fd,&res)) == -1) break;
 					if(w == EAGAIN || w == EWOULDBLOCK){
 						uint8_t ws = 0;
-						while((w = write_cli_sock(cli_sock,&res)) != -1){
+						while((w = write_cli_sock(events[i].data.fd,&res)) != -1){
 							if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-								ws = 1;
-								break;
+							ws = 1;
+							break;
 						}
 
 						if(ws){
@@ -1147,10 +1146,12 @@ bad_request:
 
 	stop_monitor();
 	stop_listening(con);
+	if(secure)
+		stop_listening(con80);
 	/*
-	if(ssl_handle_child != -1)
-		kill(ssl_handle_child,SIGINT);
-		*/
+	   if(ssl_handle_child != -1)
+	   kill(ssl_handle_child,SIGINT);
+	   */
 	return 0;
 
 client:
@@ -1159,37 +1160,37 @@ client:
 	int i;
 	while((option = getopt(argc,argv,"g:")) != -1){
 		switch(option){
-		case 'g':
-		{
-			char buff[1024] = {0};
-			int wrote = 0;
-			int personalized_req = 0;
-			if(argc > 3){
-				personalized_req = USER_FIELDS;	
-				for(i = 0; i < argc;i++){
-					if(strncmp(argv[i],"-h",2) == 0){
-						/*Grab the header field and build a new request*/
-						if(argv[i+1]){
-							int l = strlen(argv[i+1]);
-							if(snprintf(&buff[wrote],l+3,"%s\r\n",argv[i+1]) == -1)
-								return -1;
-							wrote += l+2;
+			case 'g':
+				{
+					char buff[1024] = {0};
+					int wrote = 0;
+					int personalized_req = 0;
+					if(argc > 3){
+						personalized_req = USER_FIELDS;	
+						for(i = 0; i < argc;i++){
+							if(strncmp(argv[i],"-h",2) == 0){
+								/*Grab the header field and build a new request*/
+								if(argv[i+1]){
+									int l = strlen(argv[i+1]);
+									if(snprintf(&buff[wrote],l+3,"%s\r\n",argv[i+1]) == -1)
+										return -1;
+									wrote += l+2;
+								}
+							}
 						}
-					}
-				}
 
-				if(snprintf(&buff[wrote],3,"%s","\r\n") == -1)
-					return -1;
-			}
-			/*create get request*/
-			if(req_builder(GET, optarg,F_STR_GET, buff,0,personalized_req) == -1)
-				return -1;
-			perform_http_request(optarg,buff,NULL);
-			SSL_client_close();
-			break;
-		}
-		default:
-			break;
+						if(snprintf(&buff[wrote],3,"%s","\r\n") == -1)
+							return -1;
+					}
+					/*create get request*/
+					if(req_builder(GET, optarg,F_STR_GET, buff,0,personalized_req) == -1)
+						return -1;
+					perform_http_request(optarg,buff,NULL);
+					SSL_client_close();
+					break;
+				}
+			default:
+				break;
 		}
 	}
 
