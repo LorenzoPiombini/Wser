@@ -25,9 +25,9 @@ struct p_info{
 };
 
 struct p_info proc_list[100] = {0};
-
 #define TIME_OUT 300 /*5 minutes*/
 #define EIGHTkib_limit 8192
+
 
 static char prog[] = "wser";
 
@@ -213,10 +213,11 @@ int SSL_work_process(int data_sock)
 			
 				if(r == 0 || r == 2){
 #ifdef OWN_DB
-					if(process_request(&req,cli_sock, db_sock) == 1){
+					if(process_request(&req,cli_sock, db_sock) == 1)
 #else 
-					if(process_request(&req,cli_sock) == 1){
+					if(process_request(&req,cli_sock) == 1)
 #endif
+					{
 						clear_request(&req);
 						goto loop;
 					}
@@ -248,10 +249,11 @@ loop:
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 #ifdef OWN_DB
-								if(process_request(&req,events[i].data.fd,db_sock)== 1){
+								if(process_request(&req,events[i].data.fd,db_sock)== 1)
 #else 
-								if(process_request(&req,events[i].data.fd) == 1){
+								if(process_request(&req,events[i].data.fd) == 1)
 #endif
+								{
 									clear_request(&req);
 									continue;
 								}
@@ -265,10 +267,11 @@ loop:
 						{
 							/*process request*/
 #ifdef OWN_DB
-							if(process_request(&req,events[i].data.fd,db_sock) == 1){
+							if(process_request(&req,events[i].data.fd,db_sock) == 1)
 #else 
-							if(process_request(&req,events[i].data.fd) == 1){
+							if(process_request(&req,events[i].data.fd) == 1)
 #endif
+							{
 								clear_request(&req);
 								continue;
 							}

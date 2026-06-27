@@ -811,12 +811,10 @@ int read_cli_sock(int cli_sock,struct Request *req)
 {
 	ssize_t bread = 0;	
 	errno = 0;
-
 	if((bread = read(cli_sock,req->req,BASE)) == -1){
 		if(errno == EAGAIN || errno == EWOULDBLOCK) {
-			int e = errno;
-			if((add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLET)) == -1) return -1;
-			return e;
+			return errno;
+			/*if((add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLOUT)) == -1) return -1;*/
 		}
 
 		fprintf(stderr,"(%s): cannot read data from socket",prog);
@@ -824,12 +822,6 @@ int read_cli_sock(int cli_sock,struct Request *req)
 	}
 
 	req->size = bread;
-#if USE_HTTPS
-	struct TLS_plain_text plain_text = {0};
-	if(get_TLS_plain_text(&plain_text,(uint8_t*)req->req) == -1){
-		return BAD_REQ;
-	}
-#else
 	if(handle_request(req) == BAD_REQ){
 		if(req->method == -1) return BAD_REQ;
 		if(req->size < (ssize_t)BASE) return BAD_REQ;
@@ -850,7 +842,6 @@ int read_cli_sock(int cli_sock,struct Request *req)
 		}
 	}
 
-#endif
 	return 0;
 }
 
@@ -871,7 +862,7 @@ int wait_for_connections_SSL(int sock_fd,int *cli_sock)
 	return 0;
 }
 
-int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req)
+int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req,int mode)
 {
 	struct sockaddr cli_info;
 	socklen_t len = sizeof(cli_info);
@@ -885,14 +876,16 @@ int wait_for_connections(int sock_fd,int *cli_sock, struct Request *req)
 		return -1;
 	}
 
-	int e = 0;
-	if(( e = read_cli_sock(*cli_sock,req)) == -1){
-		fprintf(stderr,"(%s): cannot read data from socket",prog);
-		return -1;
+	if( mode != MULTI_PROC){
+		int e = 0;
+		if(( e = read_cli_sock(*cli_sock,req)) == -1){
+			fprintf(stderr,"(%s): cannot read data from socket",prog);
+			return -1;
+		}
+
+		if( e == EAGAIN || e == EWOULDBLOCK || e == BAD_REQ) return e;
+
 	}
-
-	if( e == EAGAIN || e == EWOULDBLOCK || e == BAD_REQ) return e;
-
 	return 0;	
 }
 

@@ -7,6 +7,8 @@
 #include "openssl/ssl.h"
 #include <stdarg.h>
 
+#define MULTI_PROC -78
+#define SINGLE_PROC 0
 #define SSL_HD_F 18
 #define SSL_SET_E 19
 #define HANDSHAKE 20
@@ -17,6 +19,7 @@
 #define SSL_CLOSE 25
 #define CLEAN_TEARDOWN 26
 #define INT_PROC_SOCK_SSL "/tmp/TLS_SSL_operation.socket"
+#define INT_PROC_SOCK_PORT_EIGTHY_CERT_REN "/tmp/80_port_and_CERT_ren_operation.socket"
 
 #if OWN_DB
 	#define INT_PROC_SOCK_DB  "/tmp/db_operation.socket"
@@ -138,7 +141,7 @@ int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data 
 int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd);
-int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req);
+int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req,int mode);
 int perform_http_request(char *URL, char *req, char **body);
 void stop_listening(int sock_fd);
 int parse_URL(char *URL, struct Url *url);
