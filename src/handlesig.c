@@ -145,12 +145,12 @@ static void handler_ssl_process(int signo,siginfo_t *info,void*)
 	case SIGINT:
 	case SIGTERM:
 	case SIGPIPE:
-		fprintf(stderr,"the ssl process recieved sig no %d legalay from pid %d",signo,info->si_pid);
-		if(db_proc != -1)
-			kill(db_proc,SIGTERM);
+		fprintf(stderr,"the ssl process recieved sig no %d legaly from pid %d\n",signo,info->si_pid);
 		break;
 	default:
 		stop_listening(ssl_sock);
+		if(db_proc != -1)
+			kill(db_proc,SIGTERM);
 		kill(ssl_proc,SIGKILL);
 	}
 }
@@ -166,7 +166,7 @@ static void handler_main_process(int signo)
 		stop_listening(hdl_sock);
 		/*terminate all the child*/
 		if(ssl_proc != -1)
-			kill(ssl_proc,SIGTERM);
+			kill(ssl_proc,SIGKILL);
 
 		if(http_proc != -1)
 			kill(http_proc,SIGTERM);
@@ -188,14 +188,14 @@ static void handler_main_process(int signo)
 static void handler_db_process(int signo)
 {
 	switch(signo){
-	case SIGINT:
 	case SIGTERM:
-	case SIGPIPE:
 		close(db_sock);
+		if(db_proc != -1)
+			exit(-1);
 		/*TODO: undersand what action you have to take for this*/
 		break;
+	case SIGPIPE:
+	case SIGINT:
 	default:
 	}
-
-
 }
