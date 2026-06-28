@@ -126,7 +126,7 @@ static void handler_http_process(int signo)
 	case SIGTERM:
 	case SIGPIPE:
 		fprintf(stderr,"the http process recieved sig no %d\n",signo);
-		if(if ssl_proc == -1 && db_proc != -1)
+		if(ssl_proc == -1 && db_proc != -1)
 			kill(db_proc,SIGKILL);
 		break;
 	default:
