@@ -817,7 +817,7 @@ int read_cli_sock(int cli_sock,struct Request *req)
 			/*if((add_socket_to_monitor(cli_sock,EPOLLIN | EPOLLOUT)) == -1) return -1;*/
 		}
 
-		fprintf(stderr,"(%s): cannot read data from socket",prog);
+		fprintf(stderr,"(%s): cannot read data from socket -> %s\n",prog,strerror(errno));
 		return -1;
 	}
 

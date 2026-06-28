@@ -126,13 +126,12 @@ static void handler_http_process(int signo)
 	case SIGTERM:
 	case SIGPIPE:
 		fprintf(stderr,"the http process recieved sig no %d\n",signo);
-		if(db_proc != -1)
-			kill(db_proc,SIGTERM);
-		stop_listening(http_sock);
-		kill(http_proc,SIGKILL);
+		if(if ssl_proc == -1 && db_proc != -1)
+			kill(db_proc,SIGKILL);
 		break;
 	default:
-
+		stop_listening(http_sock);
+		kill(http_proc,SIGKILL);
 	}
 }
 
@@ -149,11 +148,10 @@ static void handler_ssl_process(int signo,siginfo_t *info,void*)
 		fprintf(stderr,"the ssl process recieved sig no %d legalay from pid %d",signo,info->si_pid);
 		if(db_proc != -1)
 			kill(db_proc,SIGTERM);
-		stop_listening(ssl_sock);
-		kill(ssl_proc,SIGKILL);
 		break;
 	default:
-
+		stop_listening(ssl_sock);
+		kill(ssl_proc,SIGKILL);
 	}
 }
 
