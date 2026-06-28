@@ -210,6 +210,7 @@ int main(int argc, char **argv)
 					}
 					msgh.msg_controllen = sizeof(u.buf); // Reset this every time!
 					stop_listening(data_sock);
+					stop_listening(cli_sock);
 					continue;
 				}else if(events[i].data.fd == con80){ /*handle renew certificate*/
 					if((r = wait_for_connections(con80,&cli_sock,&req,MULTI_PROC)) == -1) break;
@@ -234,6 +235,7 @@ int main(int argc, char **argv)
 					}
 					msgh.msg_controllen = sizeof(u.buf); // Reset this every time!
 					stop_listening(data_sock);
+					stop_listening(cli_sock);
 					continue;
 				}
 			}
