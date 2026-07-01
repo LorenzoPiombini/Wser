@@ -32,10 +32,8 @@ static char prog[] = "wser";
 
 #ifdef OWN_DB
 	#include "work_process.h" /* database handler*/
-	static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock);
-#else
-	static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure);
 #endif
+static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock);
 
 static int http_step(int sock,struct Request *req);
 
@@ -47,36 +45,38 @@ int HTTP_work_process(int data_sock,int secure)
 		 * when we run the server on port 80, but we need to test the entire architecture 
 		 * becuase we do not have a safe connection
 		 * */
-	int work_proc_data_sock = -1;
+	if(!secure){
+		int work_proc_data_sock = -1;
 
-	pid_t work_proc_pid = fork();
+		pid_t work_proc_pid = fork();
 
-	if(work_proc_pid == -1){
-		/*Parent*/
-		fprintf(stderr,"(%s): architecture cannot be implemented.\n",prog);
-		return -1;
-	}
-
-	if(work_proc_pid == 0){
-		/*CHILD*/
-		/* start DB handle process */	
-		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
-			fprintf(stderr,"cannot start Data base.\n");
-			kill(getppid(),SIGINT);
-		 	exit(-1);
+		if(work_proc_pid == -1){
+			/*Parent*/
+			fprintf(stderr,"(%s): architecture cannot be implemented.\n",prog);
+			return -1;
 		}
 
-		
-		db_sock = work_proc_data_sock;
-		if(handle_sig_db_process() == -1)
-			exit(1);
+		if(work_proc_pid == 0){
+			/*CHILD*/
+			/* start DB handle process */	
+			if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
+				fprintf(stderr,"cannot start Data base.\n");
+				kill(getppid(),SIGINT);
+				exit(-1);
+			}
 
-		work_process(work_proc_data_sock);
-		return -1;
+
+			db_sock = work_proc_data_sock;
+			if(handle_sig_db_process() == -1)
+				exit(1);
+
+			work_process(work_proc_data_sock);
+			return -1;
+		}
+
+		/*parent*/
+		db_proc = work_proc_pid;
 	}
-	
-	/*parent*/
-	db_proc = work_proc_pid;
 
 #endif /* OWN_DB -make flag*/
 
@@ -169,7 +169,10 @@ int HTTP_work_process(int data_sock,int secure)
 
 				/*handle the request*/
 #if OWN_DB
-				int db_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_DB);
+				int db_sock = -1;
+				if(!secure){
+					connect_UNIX_socket(-1,INT_PROC_SOCK_DB);
+				}
 #endif
 				if(start_monitor(cli_sock) == -1) {
 					fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
@@ -183,9 +186,11 @@ int HTTP_work_process(int data_sock,int secure)
 
 				if(r == EAGAIN || r == EWOULDBLOCK) goto loop;
 #ifdef OWN_DB
-				process_request(&req,cli_sock,r,secure, db_sock);
-#else 
-				process_request(&req,cli_sock,r,secure);
+				if(!secure){
+					process_request(&req,cli_sock,r,secure, db_sock);
+				} else{
+					process_request(&req,cli_sock,r,secure,-1);
+				}
 #endif
 				goto teardown;
 loop:
@@ -195,26 +200,30 @@ loop:
 					if(nfd == EINTR){
 						continue; /*change with goto teardwn in prod*/
 					}
-	
+
 					for(j = 0; j < nfd; j++){
 						int r = http_step(events[j].data.fd,&req);
 						if(r == EAGAIN || r == EWOULDBLOCK) break;
 #ifdef OWN_DB
-						process_request(&req,events[j].data.fd,r,secure, db_sock);
-#else 
-						process_request(&req,events[j].data.fd,r,secure);
+						if(!secure){
+							process_request(&req,events[j].data.fd,r,secure, db_sock);
+						}else{
+							process_request(&req,events[j].data.fd,r,secure,-1);
+						}
 #endif
 						clear_request(&req);
 						goto teardown;
 					}
 				}
 teardown:
-		stop_listening(cli_sock);
-		stop_monitor();
+				stop_listening(cli_sock);
+				stop_monitor();
 #ifdef OWN_DB
-		close(db_sock);
+				if(!secure){
+					close(db_sock);
+				}
 #endif
-		exit(0);
+				exit(0);
 			}else if(child == -1){ /*PARENT*/
 
 				stop_listening(cli_sock);
@@ -262,7 +271,9 @@ teardown:
 
 	stop_listening(cli_sock);
 #ifdef OWN_DB
-	close(db_sock);
+	if(!secure){
+		close(db_sock);
+	}
 #endif
 	return -1;
 }
@@ -279,11 +290,7 @@ static int http_step(int sock,struct Request *req)
 	return 0;
 }
 
-#ifdef OWN_DB
 static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock)
-#else
-static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure)
-#endif
 {
 
 	if(result_of_http_step == BAD_REQ) goto bad_request;
@@ -291,16 +298,79 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 	struct Content cont = {0};
 	struct Response res = {0};
 	switch(req->method){
-	case GET:
-		if(secure){
-			if(strstr(req->resource,AUTO_CERT_RENEWAL)){
-				/*load the file, and send it*/
-				if(load_resource(req->resource,&cont) == -1){
-					/*send not found response*/
-					if(generate_response(&res,404,&cont,req) == -1) break;
+		case GET:
+			if(secure){
+				if(strstr(req->resource,AUTO_CERT_RENEWAL)){
+					/*load the file, and send it*/
+					if(load_resource(req->resource,&cont) == -1){
+						/*send not found response*/
+						if(generate_response(&res,404,&cont,req) == -1) break;
 
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res)) != -1){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+
+
+							if(ws){
+								clear_response(&res);
+								clear_content(&cont);
+								return 0;
+							}
+
+							clear_response(&res);
+							clear_content(&cont);
+							return -1;
+						}
+
+						clear_response(&res);
+						clear_content(&cont);
+						return -1;
+					}
+
+					/*send 200 response*/
+					if(generate_response(&res,OK,&cont,req) == -1) {
+						/*TODO: server errror*/
+						clear_response(&res);
+						clear_content(&cont);
+						return -1;
+					}
+
+					clear_content(&cont);
 					int w = 0;
 					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+					if(w == EAGAIN || w == EWOULDBLOCK){
+						uint8_t ws = 0;
+						while((w = write_cli_sock(cli_sock,&res)) != -1){
+							if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+							ws = 1;
+							break;
+						}	
+						if(ws){
+							kill(ssl_proc,SIGHUP);
+							clear_response(&res);
+							return 0;
+						}
+						clear_response(&res);
+						return -1;
+					}
+
+					kill(ssl_proc,SIGHUP);
+					clear_response(&res);
+					return 0;
+				}else{
+					/*send 301 response*/
+					if(generate_response(&res,301,NULL,req) == -1) break;
+
+					int w = 0;
+					if((w = write_cli_sock(cli_sock,&res)) == -1) break;
 					if(w == EAGAIN || w == EWOULDBLOCK){
 						uint8_t ws = 0;
 						while((w = write_cli_sock(cli_sock,&res)) != -1){
@@ -324,254 +394,63 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 
 					clear_response(&res);
 					clear_content(&cont);
-					return -1;
+					return 0;
 				}
-
-				/*send 200 response*/
-				if(generate_response(&res,OK,&cont,req) == -1) {
-					/*TODO: server errror*/
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
-
-				clear_content(&cont);
-				int w = 0;
-				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-				if(w == EAGAIN || w == EWOULDBLOCK){
-					uint8_t ws = 0;
-					while((w = write_cli_sock(cli_sock,&res)) != -1){
-						if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-						ws = 1;
-						break;
-					}	
-					if(ws){
-						kill(ssl_proc,SIGHUP);
-						clear_response(&res);
-						return 0;
-					}
-					clear_response(&res);
-					return -1;
-				}
-
-				kill(ssl_proc,SIGHUP);
-				clear_response(&res);
-				return 0;
-			}else{
-				/*send 301 response*/
-				if(generate_response(&res,301,NULL,req) == -1) break;
-
-				int w = 0;
-				if((w = write_cli_sock(cli_sock,&res)) == -1) break;
-				if(w == EAGAIN || w == EWOULDBLOCK){
-					uint8_t ws = 0;
-					while((w = write_cli_sock(cli_sock,&res)) != -1){
-						if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-						ws = 1;
-						break;
-					}
-
-
-					if(ws){
-						clear_response(&res);
-						clear_content(&cont);
-						return 0;
-					}
-
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
-
-				clear_response(&res);
-				clear_content(&cont);
-				return 0;
+				break;
 			}
-			break;
-		}
-		/* Load content */	
-		if((strstr(req->resource,".js")
-					|| strstr(req->resource,".html")
-					|| strstr(req->resource,".css")
-					|| (strlen(req->resource) == 1 && (strncmp(req->resource,"/",1) == 0)))){
-			if(load_resource(req->resource,&cont) == -1){
-				/*send not found response*/
-				if(generate_response(&res,404,&cont,req) == -1) break;
+			/* Load content */	
+			if((strstr(req->resource,".js")
+						|| strstr(req->resource,".html")
+						|| strstr(req->resource,".css")
+						|| (strlen(req->resource) == 1 && (strncmp(req->resource,"/",1) == 0)))){
+				if(load_resource(req->resource,&cont) == -1){
+					/*send not found response*/
+					if(generate_response(&res,404,&cont,req) == -1) break;
 
-				int w = 0;
-				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-				if(w == EAGAIN || w == EWOULDBLOCK){
-					uint8_t ws = 0;
-					while((w = write_cli_sock(cli_sock,&res)) != -1){
-						if(w == EAGAIN || w == EWOULDBLOCK) continue;
-						ws = 1;
-						break;
-					}
+					int w = 0;
+					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+					if(w == EAGAIN || w == EWOULDBLOCK){
+						uint8_t ws = 0;
+						while((w = write_cli_sock(cli_sock,&res)) != -1){
+							if(w == EAGAIN || w == EWOULDBLOCK) continue;
+							ws = 1;
+							break;
+						}
 
 
-					if(ws){
+						if(ws){
+							clear_content(&cont);
+							clear_response(&res);
+							return 0;
+						}
+
 						clear_content(&cont);
 						clear_response(&res);
-						return 0;
+						return -1;
 					}
 
 					clear_content(&cont);
 					clear_response(&res);
 					return -1;
 				}
+			}else{
+#ifdef OWN_DB
+				/*get data from the DB*/
+				if(!secure){
+					if(load_resource_db(req,&cont,db_sock) == -1) goto bad_request;
+				}
+#endif
+			}
 
+			/*send 200 response*/
+			if(generate_response(&res,OK,&cont,req) == -1) {
+				/*TODO: server errror*/
 				clear_content(&cont);
 				clear_response(&res);
 				return -1;
 			}
-		}else{
-#ifdef OWN_DB
-			/*get data from the DB*/
-			if(load_resource_db(req,&cont,db_sock) == -1) goto bad_request;
-#endif
-		}
 
-		/*send 200 response*/
-		if(generate_response(&res,OK,&cont,req) == -1) {
-			/*TODO: server errror*/
 			clear_content(&cont);
-			clear_response(&res);
-			return -1;
-		}
-
-		clear_content(&cont);
-		int w = 0;
-		if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-		if(w == EAGAIN || w == EWOULDBLOCK){
-			uint8_t ws = 0;
-			while((w = write_cli_sock(cli_sock,&res)) != -1){
-				if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-				ws = 1;
-				break;
-			}
-			if(ws){
-				clear_response(&res);
-				return 0;
-			}
-			clear_response(&res);
-			return -1;
-		}
-
-		clear_response(&res);
-		return 0;
-	case OPTIONS:
-		{
-		if(secure){
-			if(strstr(req->resource,AUTO_CERT_RENEWAL)){
-				/*load the file, and send it*/
-				if(load_resource(req->resource,&cont) == -1){
-					/*send not found response*/
-					if(generate_response(&res,404,&cont,req) == -1) break;
-
-					int w = 0;
-					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-					if(w == EAGAIN || w == EWOULDBLOCK){
-						uint8_t ws = 0;
-						while((w = write_cli_sock(cli_sock,&res)) != -1){
-							if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-							ws = 1;
-							break;
-						}
-
-
-						if(ws){
-							clear_response(&res);
-							clear_content(&cont);
-							return 0;
-						}
-
-						clear_response(&res);
-						clear_content(&cont);
-						return -1;
-					}
-
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
-
-				/*send 200 response*/
-				if(generate_response(&res,OK,&cont,req) == -1) {
-					/*TODO: server errror*/
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
-
-				clear_content(&cont);
-				int w = 0;
-				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-				if(w == EAGAIN || w == EWOULDBLOCK){
-					uint8_t ws = 0;
-					while((w = write_cli_sock(cli_sock,&res)) != -1){
-						if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-						ws = 1;
-						break;
-					}	
-					if(ws){
-						kill(ssl_proc,SIGHUP);
-						clear_response(&res);
-						return 0;
-					}
-					clear_response(&res);
-					return -1;
-				}
-
-				kill(ssl_proc,SIGHUP);
-				clear_response(&res);
-				return 0;
-			}else{
-				/*send 301 response*/
-				if(generate_response(&res,301,NULL,req) == -1) break;
-
-				int w = 0;
-				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-				if(w == EAGAIN || w == EWOULDBLOCK){
-					uint8_t ws = 0;
-					while((w = write_cli_sock(cli_sock,&res)) != -1){
-						if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-						ws = 1;
-						break;
-					}
-
-
-					if(ws){
-						clear_response(&res);
-						clear_content(&cont);
-						return 0;
-					}
-
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
-
-				clear_response(&res);
-				clear_content(&cont);
-				return 0;
-			}
-			break;
-		}
-			size_t s = strlen(req->origin);
-			if(s != strlen(ORIGIN_DEF)) goto bad_request;
-
-			if(strncmp(req->origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0) goto bad_request;
-
-
-			/*send a response to the options request*/
-			if(generate_response(&res,200,NULL,req) == -1) break;
-
 			int w = 0;
 			if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
 			if(w == EAGAIN || w == EWOULDBLOCK){
@@ -582,94 +461,125 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 					ws = 1;
 					break;
 				}
-
-				if(ws) {
+				if(ws){
 					clear_response(&res);
 					return 0;
 				}
-
+				clear_response(&res);
 				return -1;
 			}
 
 			clear_response(&res);
 			return 0;
-		}
-		/*not implemented method **ON PORPUSE** */
-	case DELETE:
-	case POST:
-	case PUT:
-	default:
-		{
+		case OPTIONS:
+			{
+				if(secure){
+					if(strstr(req->resource,AUTO_CERT_RENEWAL)){
+						/*load the file, and send it*/
+						if(load_resource(req->resource,&cont) == -1){
+							/*send not found response*/
+							if(generate_response(&res,404,&cont,req) == -1) break;
 
-		if(secure){
-			if(strstr(req->resource,AUTO_CERT_RENEWAL)){
-				/*load the file, and send it*/
-				if(load_resource(req->resource,&cont) == -1){
-					/*send not found response*/
-					if(generate_response(&res,404,&cont,req) == -1) break;
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-					int w = 0;
-					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-					if(w == EAGAIN || w == EWOULDBLOCK){
-						uint8_t ws = 0;
-						while((w = write_cli_sock(cli_sock,&res)) != -1){
-							if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-							ws = 1;
-							break;
-						}
+									ws = 1;
+									break;
+								}
 
 
-						if(ws){
+								if(ws){
+									clear_response(&res);
+									clear_content(&cont);
+									return 0;
+								}
+
+								clear_response(&res);
+								clear_content(&cont);
+								return -1;
+							}
+
 							clear_response(&res);
 							clear_content(&cont);
-							return 0;
+							return -1;
 						}
 
-						clear_response(&res);
+						/*send 200 response*/
+						if(generate_response(&res,OK,&cont,req) == -1) {
+							/*TODO: server errror*/
+							clear_response(&res);
+							clear_content(&cont);
+							return -1;
+						}
+
 						clear_content(&cont);
-						return -1;
-					}
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res)) != -1){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
 
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
+								ws = 1;
+								break;
+							}	
+							if(ws){
+								kill(ssl_proc,SIGHUP);
+								clear_response(&res);
+								return 0;
+							}
+							clear_response(&res);
+							return -1;
+						}
 
-				/*send 200 response*/
-				if(generate_response(&res,OK,&cont,req) == -1) {
-					/*TODO: server errror*/
-					clear_response(&res);
-					clear_content(&cont);
-					return -1;
-				}
-
-				clear_content(&cont);
-				int w = 0;
-				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-				if(w == EAGAIN || w == EWOULDBLOCK){
-					uint8_t ws = 0;
-					while((w = write_cli_sock(cli_sock,&res)) != -1){
-						if(w == EAGAIN || w == EWOULDBLOCK) continue;
-
-						ws = 1;
-						break;
-					}	
-					if(ws){
 						kill(ssl_proc,SIGHUP);
 						clear_response(&res);
 						return 0;
-					}
-					clear_response(&res);
-					return -1;
-				}
+					}else{
+						/*send 301 response*/
+						if(generate_response(&res,301,NULL,req) == -1) break;
 
-				kill(ssl_proc,SIGHUP);
-				clear_response(&res);
-				return 0;
-			}else{
-				/*send 301 response*/
-				if(generate_response(&res,301,NULL,req) == -1) break;
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res)) != -1){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+
+
+							if(ws){
+								clear_response(&res);
+								clear_content(&cont);
+								return 0;
+							}
+
+							clear_response(&res);
+							clear_content(&cont);
+							return -1;
+						}
+
+						clear_response(&res);
+						clear_content(&cont);
+						return 0;
+					}
+					break;
+				}
+				size_t s = strlen(req->origin);
+				if(s != strlen(ORIGIN_DEF)) goto bad_request;
+
+				if(strncmp(req->origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0) goto bad_request;
+
+
+				/*send a response to the options request*/
+				if(generate_response(&res,200,NULL,req) == -1) break;
 
 				int w = 0;
 				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -682,46 +592,145 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 						break;
 					}
 
-
-					if(ws){
+					if(ws) {
 						clear_response(&res);
-						clear_content(&cont);
 						return 0;
 					}
 
-					clear_response(&res);
-					clear_content(&cont);
 					return -1;
 				}
 
 				clear_response(&res);
-				clear_content(&cont);
 				return 0;
 			}
-			break;
-		}
-			if(generate_response(&res,400,NULL,req) == -1) break;
+			/*not implemented method **ON PORPUSE** */
+		case DELETE:
+		case POST:
+		case PUT:
+		default:
+			{
 
-			int w = 0;
-			if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
-			if(w == EAGAIN || w == EWOULDBLOCK){
-				uint8_t ws = 0;
-				while((w = write_cli_sock(cli_sock,&res)) != -1){
-					if(w == EAGAIN || w == EWOULDBLOCK) continue;
+				if(secure){
+					if(strstr(req->resource,AUTO_CERT_RENEWAL)){
+						/*load the file, and send it*/
+						if(load_resource(req->resource,&cont) == -1){
+							/*send not found response*/
+							if(generate_response(&res,404,&cont,req) == -1) break;
 
-					ws = 1;
+							int w = 0;
+							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+							if(w == EAGAIN || w == EWOULDBLOCK){
+								uint8_t ws = 0;
+								while((w = write_cli_sock(cli_sock,&res)) != -1){
+									if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+									ws = 1;
+									break;
+								}
+
+
+								if(ws){
+									clear_response(&res);
+									clear_content(&cont);
+									return 0;
+								}
+
+								clear_response(&res);
+								clear_content(&cont);
+								return -1;
+							}
+
+							clear_response(&res);
+							clear_content(&cont);
+							return -1;
+						}
+
+						/*send 200 response*/
+						if(generate_response(&res,OK,&cont,req) == -1) {
+							/*TODO: server errror*/
+							clear_response(&res);
+							clear_content(&cont);
+							return -1;
+						}
+
+						clear_content(&cont);
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res)) != -1){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}	
+							if(ws){
+								kill(ssl_proc,SIGHUP);
+								clear_response(&res);
+								return 0;
+							}
+							clear_response(&res);
+							return -1;
+						}
+
+						kill(ssl_proc,SIGHUP);
+						clear_response(&res);
+						return 0;
+					}else{
+						/*send 301 response*/
+						if(generate_response(&res,301,NULL,req) == -1) break;
+
+						int w = 0;
+						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+						if(w == EAGAIN || w == EWOULDBLOCK){
+							uint8_t ws = 0;
+							while((w = write_cli_sock(cli_sock,&res)) != -1){
+								if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+								ws = 1;
+								break;
+							}
+
+
+							if(ws){
+								clear_response(&res);
+								clear_content(&cont);
+								return 0;
+							}
+
+							clear_response(&res);
+							clear_content(&cont);
+							return -1;
+						}
+
+						clear_response(&res);
+						clear_content(&cont);
+						return 0;
+					}
 					break;
 				}
+				if(generate_response(&res,400,NULL,req) == -1) break;
 
-				if(ws) return 0;
+				int w = 0;
+				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
+				if(w == EAGAIN || w == EWOULDBLOCK){
+					uint8_t ws = 0;
+					while((w = write_cli_sock(cli_sock,&res)) != -1){
+						if(w == EAGAIN || w == EWOULDBLOCK) continue;
+
+						ws = 1;
+						break;
+					}
+
+					if(ws) return 0;
+
+					return -1;
+				}
+
+				clear_response(&res);
 
 				return -1;
-			}
-
-			clear_response(&res);
-
-			return -1;
-		}/*end default case*/
+			}/*end default case*/
 	}/*end switch statement*/
 
 bad_request:
@@ -740,7 +749,7 @@ bad_request:
 		}
 
 		if(ws) return 0;
-					
+
 		return -1;
 	}
 	clear_response(&res);
