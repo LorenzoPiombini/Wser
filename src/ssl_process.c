@@ -746,7 +746,7 @@ static int process_request(struct Request *req, int cli_sock)
 				return 0;
 		}
 		/*send 200 response*/
-		if(generate_response(&res,201,&cont,req) == -1) {
+		if(generate_response(&res,200,&cont,req) == -1) {
 			clear_content(&cont);
 			clear_response(&res);
 			return 0;
