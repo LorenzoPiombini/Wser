@@ -33,7 +33,7 @@ static char prog[] = "wser";
 
 #ifdef OWN_DB
 
-#include "work_process.h" /* database handler*/
+#include "worker_process.h" /* database handler*/
 
 static int process_request(struct Request *req, int cli_sock, int work_proc_data_sock);
 #else
