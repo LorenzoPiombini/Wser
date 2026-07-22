@@ -233,6 +233,7 @@ loop:
 						continue; /*change with goto teardwn in prod*/
 					}
 	
+					int counter = 0;
 					for(i = 0; i < nfds; i++){
 						int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
@@ -246,6 +247,10 @@ loop:
 						case SSL_WRITE_E:
 						case HANDSHAKE:
 						{		
+							if(counter > 10){
+								clear_request(&req);
+								goto teardown;
+							}
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 #ifdef OWN_DB
@@ -260,6 +265,7 @@ loop:
 								clear_request(&req);
 								goto teardown;
 							}
+							counter++;
 							break;
 						}
 						case 2:
