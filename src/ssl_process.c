@@ -227,7 +227,6 @@ int SSL_work_process(int data_sock)
 
 loop:
 				int nfds =-1,i;
-				int counter = 0;
 				for(;;){
 					if((nfds = monitor_events()) == -1) goto teardown;
 					if(nfds == EINTR){
@@ -247,10 +246,6 @@ loop:
 						case SSL_WRITE_E:
 						case HANDSHAKE:
 						{		
-							if(counter > 10){
-								clear_request(&req);
-								goto teardown;
-							}
 							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 #ifdef OWN_DB
@@ -265,7 +260,6 @@ loop:
 								clear_request(&req);
 								goto teardown;
 							}
-							counter++;
 							break;
 						}
 						case 2:
