@@ -227,13 +227,13 @@ int SSL_work_process(int data_sock)
 
 loop:
 				int nfds =-1,i;
+				int counter = 0;
 				for(;;){
 					if((nfds = monitor_events()) == -1) goto teardown;
 					if(nfds == EINTR){
 						continue; /*change with goto teardwn in prod*/
 					}
 	
-					int counter = 0;
 					for(i = 0; i < nfds; i++){
 						int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
 
