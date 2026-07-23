@@ -131,7 +131,7 @@ int SSL_work_process(int data_sock)
 	SSL *ssl_cli = NULL;
 	for(;;){
 		
-		if((nfds = monitor_events()) == -1) goto teardown;
+		if((nfds = monitor_events()) == -1) goto teardown_a;
 		if(nfds == EINTR){
 			if(reload_certificate){
 				reload_certificate = 0;
@@ -202,14 +202,14 @@ int SSL_work_process(int data_sock)
 
 				if(start_monitor(cli_sock) == -1) {
 					fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
-					goto teardown;
+					goto teardown_a;
 				}
 
 				struct Request req = {0};
 				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
 
 				if(r == -1)
-					goto teardown;
+					goto teardown_a;
 			
 				if(r == 0 || r == 2){
 #ifdef OWN_DB
@@ -222,19 +222,20 @@ int SSL_work_process(int data_sock)
 						goto loop;
 					}
 					clear_request(&req);
-					goto teardown;
+					goto teardown_a;
 				}
 
 loop:
-				int nfds =-1,i;
+				int nfds =-1,j;
 				for(;;){
 					if((nfds = monitor_events()) == -1) goto teardown;
 					if(nfds == EINTR){
 						continue; /*change with goto teardwn in prod*/
 					}
 	
-					for(i = 0; i < nfds; i++){
-						int r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+				
+					for(j = 0; j < nfds; j++){
+						int r = handle_ssl_steps(cds,events[j].data.fd,&req,&ssl_cli,&ctx);
 
 						if(r == -1){
 							/*shutdown*/
@@ -246,12 +247,12 @@ loop:
 						case SSL_WRITE_E:
 						case HANDSHAKE:
 						{		
-							r = handle_ssl_steps(cds,events[i].data.fd,&req,&ssl_cli,&ctx);
+							r = handle_ssl_steps(cds,events[j].data.fd,&req,&ssl_cli,&ctx);
 							if(r == 0 || r == 2){
 #ifdef OWN_DB
-								if(process_request(&req,events[i].data.fd,db_sock)== 1)
+								if(process_request(&req,events[j].data.fd,db_sock)== 1)
 #else 
-								if(process_request(&req,events[i].data.fd) == 1)
+								if(process_request(&req,events[j].data.fd) == 1)
 #endif
 								{
 									clear_request(&req);
@@ -267,9 +268,9 @@ loop:
 						{
 							/*process request*/
 #ifdef OWN_DB
-							if(process_request(&req,events[i].data.fd,db_sock) == 1)
+							if(process_request(&req,events[j].data.fd,db_sock) == 1)
 #else 
-							if(process_request(&req,events[i].data.fd) == 1)
+							if(process_request(&req,events[j].data.fd) == 1)
 #endif
 							{
 								clear_request(&req);
@@ -280,14 +281,14 @@ loop:
 						case BAD_REQ:
 						{
 							struct Response res = {0};
-							/*send a bed request response*/
+							/*send a bad request response*/
 							if(generate_response(&res,400,NULL,&req) == -1) {
 								clear_response(&res);
 								goto teardown;
 							}
 
 							int w = 0;
-							if((w = write_cli_SSL(events[i].data.fd,&res,cds)) == -1) {
+							if((w = write_cli_SSL(events[j].data.fd,&res,cds)) == -1) {
 								clear_response(&res);
 								goto teardown;
 							}
@@ -309,7 +310,7 @@ loop:
 						remove_socket_from_monitor(cli_sock);
 						stop_monitor();
 						clear_request(&req);
-						clean_connecion_data(cds,events[i].data.fd);
+						clean_connecion_data(cds,events[j].data.fd);
 						SSL_CTX_free(ctx);
 #if OWN_DB
 						close(db_sock);
@@ -318,9 +319,16 @@ loop:
 						}
 					}
 				}
+teardown_a:
+			clean_connecion_data(cds,cli_sock);
+			remove_socket_from_monitor(cli_sock);
+			SSL_CTX_free(ctx);
+			ctx = NULL;
+			stop_monitor();
+			exit(0);
 teardown:
 			remove_socket_from_monitor(cli_sock);
-			clean_connecion_data(cds,events[i].data.fd);
+			clean_connecion_data(cds,events[j].data.fd);
 			SSL_CTX_free(ctx);
 			ctx = NULL;
 			stop_monitor();
