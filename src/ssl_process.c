@@ -471,7 +471,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
 						cd[i].retry_read = SSL_peek_ex;
-						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
 							/*TODO*/
 						}
 						break;
@@ -502,7 +502,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].retry_read = NULL;
 						cd[i].retry_write = NULL;
 						cd[i].close_notify = SSL_shutdown;
-						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
 							/*TODO*/
 						}
 						break;
@@ -545,6 +545,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			if((r = cd[i].retry_handshake(cd[i].ssl)) <= 0){ 
 				int err = SSL_get_error(cd[i].ssl,r);
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){
+					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+						/*TODO*/
+					}
 					return HANDSHAKE;	
 				}else{
 					fprintf(stderr,"the error happens when retrying handshake\n");
@@ -574,6 +577,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			if((result = SSL_peek_ex(cd[i].ssl,req->req,BASE,&bread)) == 0) {
 				int err = SSL_get_error(cd[i].ssl,result);
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+						/*TODO*/
+					}
 					cd[i].retry_read = SSL_peek_ex;
 					return SSL_READ_E; 
 				}else if (bread == BASE){
@@ -632,6 +638,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			if((result = cd[i].retry_read(cd[i].ssl,req->req,BASE,&bread)) == 0){
 				int err = SSL_get_error(cd[i].ssl,result);
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+						/*TODO*/
+					}
 					return SSL_READ_E; 
 				}else{
 					return -1;
@@ -683,6 +692,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 							&bwritten)) == 0){
 				int err = SSL_get_error(cd[i].ssl,result);
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+						/*TODO*/
+					}
 					return SSL_WRITE_E;
 				}else{
 
