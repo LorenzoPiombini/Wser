@@ -712,7 +712,7 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 		if((r = cd[i].retry_handshake(cd[i].ssl)) <= 0){ 
 			int err = SSL_get_error(cd[i].ssl,r);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){ 
-				if(modify_monitor_event(cd[i].ssl,EPOLLOUT | EPOLLIN) == -1) return -1;
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLIN) == -1) return -1;
 				return HANDSHAKE;	
 			}else{
 				fprintf(stderr,"the error happens when retrying handshake\n");
@@ -731,7 +731,7 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 		if((result = SSL_read_ex(cd[i].ssl,req->req,BASE,&bread)) == 0) {
 			int err = SSL_get_error(cd[i].ssl,result);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				if(modify_monitor_event(cd[i].ssl,EPOLLOUT | EPOLLIN) == -1) return -1;
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLIN) == -1) return -1;
 				cd[i].retry_read = SSL_read_ex;
 				return SSL_READ_E; 
 			}else if (bread == BASE){
@@ -763,7 +763,7 @@ int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *c
 		if((result = cd[i].retry_read(cd[i].ssl,req->req,BASE,&bread)) == 0){
 			int err = SSL_get_error(cd[i].ssl,result);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				if(modify_monitor_event(cd[i].ssl,EPOLLOUT | EPOLLIN) == -1) return -1;
+				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLIN) == -1) return -1;
 				return SSL_READ_E; 
 			}else{
 				fprintf(stderr,"the error happens when retrying read\n");
