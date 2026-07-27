@@ -10,7 +10,7 @@ static int set_up_headers(struct Header *headers, int status, size_t body_size);
 static void set_status_and_phrase(struct Header *headers, uint16_t status);
 static char *create_response_message(struct Response *res, int status, struct Content *cont, struct Request *req);
 static int parse_body(struct Content *cont, struct Response *res);
-static int not_found_header(char *header, struct Request *req, struct Response *res);
+static int not_found_header(char *header, struct Request *req, struct Response *res, struct Content *cont);
 static int bad_request_header(char *header);
 static int moved_permanently_header(char *header,struct Request *r);
 static int options_response_header(char *header,int status);
@@ -44,7 +44,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 
 	switch(status){
 	case 404:
-		if(not_found_header(h,req,res) == -1) return NULL;
+		if(not_found_header(h,req,res,cont != NULL ? cont : NULL) == -1) return NULL;
 		return h;
 	case 400:
 		if(bad_request_header(h) == -1) return NULL;
@@ -373,20 +373,29 @@ static int parse_body(struct Content *cont, struct Response *res)
 
 	return 0;
 }
-static int not_found_header(char *header, struct Request *req, struct Response *res)
+static int not_found_header(char *header, struct Request *req, struct Response *res, struct Content *cont)
 {
 
-	if(snprintf(header,1024,"%s %d %s\r\n"\
+	if(!cont){
+		if(snprintf(header,1024,"%s %d %s\r\n"\
 					"Date: %s\r\n"\
 					"Content-Type: %s\r\n"\
 					"Connection: %s\r\n"\
 					"\r\n%s",res->headers.protocol_vs, 404, "Not Found",res->headers.date,
 					req->cont_type,res->headers.connection,NOT_FOUND) == -1){
-
 			return -1;
+		}
+	}else{
+		if(snprintf(header,1024,"%s %d %s\r\n"\
+					"Date: %s\r\n"\
+					"Content-Type: %s\r\n"\
+					"Connection: %s\r\n"\
+					"\r\n",res->headers.protocol_vs, 404, "Not Found",res->headers.date,
+					"application-json",res->headers.connection) == -1){
+			return -1;
+		}
 	}
 	return 0;
-
 }
 
 static int bad_request_header(char *header)

@@ -752,7 +752,11 @@ static int process_request(struct Request *req, int cli_sock)
 			fprintf(stderr,"resource is %s\n",req->resource);
 		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
 				/*send not found response*/
-				if(generate_response(&res,404,NULL,req) == -1) break;
+				if(cont.cnt_st[0] != '\0'){
+					if(generate_response(&res,404,&cont,req) == -1) break;
+				}else{
+					if(generate_response(&res,404,NULL,req) == -1) break;
+				}
 
 				int w = 0;
 				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
@@ -906,7 +910,12 @@ static int process_request(struct Request *req, int cli_sock)
 
 		fprintf(stderr,"POST branch resource is %s\n",req->resource);		
 		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
-			if(generate_response(&res,404,NULL,req) == -1) break;
+			if(cont.cnt_st[0] != '\0'){
+				if(generate_response(&res,404,&cont,req) == -1) break;
+			}else{
+				if(generate_response(&res,404,NULL,req) == -1) break;
+			}
+
 
 			int w = 0;
 			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
