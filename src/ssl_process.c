@@ -416,7 +416,6 @@ static int handle_ssl_steps(struct Connection_data *cd,
 		if((hs_res = SSL_accept(*ssl)) <= 0) {
 			int err = SSL_get_error(*ssl,hs_res);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-
 				int i;
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
 					if(cd[i].fd == 0 || cd[i].fd == -1){
@@ -459,18 +458,25 @@ static int handle_ssl_steps(struct Connection_data *cd,
 		size_t bread = 0;
 		int result = 0;
 		ssize_t byte_to_read = BASE;
-		char buf[EIGHTkib_limit] = {0};
-		char *pbuf = &buf[0];
 
-		while((result = SSL_peek_ex(*ssl,pbuf,byte_to_read,&bread)) == 0 || bread == BASE) {
+		while((result = SSL_read_ex(*ssl,&req->req[req->size],byte_to_read,&bread)) == 0 || bread == BASE) {
+			if(byte_to_read == (ssize_t)bread){
+				fprintf(stderr,"(%s): request is too big! refactor? %s:%d.\n",prog,__FILE__,__LINE__);
+				return -1;
+			}
+
 			int err = SSL_get_error(*ssl,result);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+				if(bread > 0){
+					req->size += bread;
+					assert(req->size < BASE);
+				}
 				int i;
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
 					if(cd[i].fd == 0 || cd[i].fd == -1){
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
-						cd[i].retry_read = SSL_peek_ex;
+						cd[i].retry_read = SSL_read_ex;
 						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
 							/*TODO*/
 						}
@@ -485,13 +491,9 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 				return SSL_READ_E; 
 			}else if(err == SSL_ERROR_NONE){
-				if(byte_to_read < EIGHTkib_limit){
-					memset(buf,0,byte_to_read);
-					byte_to_read += 1024;
-					continue;
-				}
-
 				/*TODO: here we need to allocate memory*/		
+				if(bread == BASE)
+					fprintf(stderr,"(%s): NO ERROR FOR SSL READING, but req too big,%s:%d\n",prog,__FILE__,__LINE__);
 			}else {
 				int i;
 				for(i = 0; i < MAX_CON_DAT_ARR;i++){
@@ -516,27 +518,39 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			if(cd[i].fd == 0 || cd[i].fd == -1){
 				cd[i].fd = cli_sock;
 				cd[i].ssl = *ssl;
-				cd[i].retry_read = SSL_peek_ex;
+				cd[i].retry_read = SSL_read_ex;
 				if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
 					/*TODO*/
 				}
 				break;
 			}
 		}
-		/* copy the buffer to the request struct*/
-		req->size = bread;
-		if(bread >= BASE){
-			/*allocate*/
-			if(set_up_request(bread,req) == -1) return -1;
-		}else{
-			strncpy(req->req,pbuf,bread);
-		}
+		/*We know, by design req->req will be max 1024 bytes
+		 * we do not use strlen() it could cause SIGSEGV */
 
-		if(handle_request(req) == BAD_REQ){
+		int j;
+		char *p = &req->req[0];
+		for(j=0;j < BASE && *p; j++, p++);
+
+		assert((j+req->size) < BASE);
+		/*
+		 * if this assertion ever fails, you should considering adding
+		 * memory allocations, or refactor the code;
+		 * */
+
+		if(req->size < j) req->size += (size_t)j;
+
+		int is_body_missing = 0;
+		if((is_body_missing = handle_request(req)) == BAD_REQ){
 			if(req->method == -1) return BAD_REQ;
 			if(req->size < (ssize_t)BASE) return BAD_REQ;
 		}
 
+		if(is_body_missing){
+			cd[i].retry_handshake = NULL;
+			cd[i].retry_read = SSL_read_ex;
+			return SSL_READ_E;
+		}
 		return 0;
 	}else{
 		if(cd[i].retry_handshake){
@@ -572,112 +586,139 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			}
 
 			cd[i].retry_handshake = NULL;
-			int result;
 			size_t bread = 0;
-			if((result = SSL_peek_ex(cd[i].ssl,req->req,BASE,&bread)) == 0) {
-				int err = SSL_get_error(cd[i].ssl,result);
+			int result = 0;
+			ssize_t byte_to_read = BASE;
+
+			while((result = SSL_read_ex(*ssl,&req->req[req->size],byte_to_read,&bread)) == 0 || bread == BASE) {
+				if(byte_to_read == (ssize_t)bread){
+					fprintf(stderr,"(%s): request is too big! refactor? %s:%d.\n",prog,__FILE__,__LINE__);
+					return -1;
+				}
+
+				int err = SSL_get_error(*ssl,result);
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					if(bread > 0){
+						req->size += bread;
+						assert(req->size < BASE);
+					}
+					cd[i].retry_read = SSL_read_ex;
 					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
 						/*TODO*/
 					}
-					cd[i].retry_read = SSL_peek_ex;
 					return SSL_READ_E; 
-				}else if (bread == BASE){
-					fprintf(stderr,"the issue is not enogh space in the buffer\n");
-					ERR_print_errors_fp(stderr);
+				}else if(err == SSL_ERROR_NONE){
+					/*TODO: here we need to allocate memory*/		
+					if(bread == BASE)
+						fprintf(stderr,"(%s): NO ERROR FOR SSL READING, but req too big,%s:%d\n",prog,__FILE__,__LINE__);
 					return -1;
-				}else{
-					fprintf(stderr,"the error happens when reading SSL after handshake\n");
-					ERR_print_errors_fp(stderr);
-					int i;
-					for(i = 0; i < MAX_CON_DAT_ARR;i++){
-						if(cd[i].fd == 0 || cd[i].fd == -1){
-							cd[i].fd = cli_sock;
-							cd[i].ssl = *ssl;
-							cd[i].retry_handshake = NULL;
-							cd[i].retry_read = NULL;
-							cd[i].retry_write = NULL;
-							cd[i].close_notify = SSL_shutdown;
-							if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-								/*TODO*/
-							}
-							break;
-						}
+				}else {
+					cd[i].retry_handshake = NULL;
+					cd[i].retry_read = NULL;
+					cd[i].retry_write = NULL;
+					cd[i].close_notify = SSL_shutdown;
+					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+						/*TODO*/
 					}
+					return SSL_CLOSE;
 				}
 			}
 
-			req->size = bread;
-			if(handle_request(req) == BAD_REQ){
+
+			/*We know, by design req->req will be max 1024 bytes
+			 * we do not use strlen() it could cause SIGSEGV */
+
+			int j;
+			char *p = &req->req[0];
+			for(j=0;j < BASE && *p; j++, p++);
+
+			assert((j+req->size) < BASE);
+			/*
+			 * if this assertion ever fails, you should considering adding
+			 * memory allocations, or refactor the code;
+			 * */
+
+			if(req->size < j) req->size += (size_t)j;
+
+			int is_body_missing = 0;
+			if((is_body_missing = handle_request(req)) == BAD_REQ){
 				if(req->method == -1) return BAD_REQ;
 				if(req->size < (ssize_t)BASE) return BAD_REQ;
+			}
 
-				if(req->size == (ssize_t)BASE){
-					if(set_up_request(bread,req) == -1) return -1;
-
-					ssize_t move = req->size;
-#if 0
-					if((bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
-						if(errno == EAGAIN || errno == EWOULDBLOCK) {
-							int e = errno;
-							/*TODO: add fd to poll*/
-							return e;
-						}
-						fprintf(stderr,"(%s): cannot read data from socket",prog);
-						return -1;
-					}
-#endif
-				}
+			if(is_body_missing) {
+				cd[i].retry_read = SSL_read_ex;
+				return SSL_READ_E;
 			}
 			return 0;
 		}
 
 		if(cd[i].retry_read){ 
+			if(req->size >= BASE) {
+				fprintf(stderr,"(%s): retrying reading but req too big,%s:%d\n",prog,__FILE__,__LINE__);
+				return -1;
+			}
+
 			int result;
 			size_t bread = 0;
-			if((result = cd[i].retry_read(cd[i].ssl,req->req,BASE,&bread)) == 0){
-				int err = SSL_get_error(cd[i].ssl,result);
+			size_t read_at_most =  BASE - req->size;
+
+			/**/
+			while((result = cd[i].retry_read(cd[i].ssl,&req->req[req->size],read_at_most,&bread)) == 0){
+				int err = SSL_get_error(*ssl,result);
 				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					if(bread > 0){
+						req->size += bread;
+						assert(req->size < BASE);
+					}
+					cd[i].retry_read = SSL_read_ex;
 					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
 						/*TODO*/
 					}
 					return SSL_READ_E; 
-				}else{
+				}else if(err == SSL_ERROR_NONE){
+					/*TODO: here we need to allocate memory*/		
+					if(bread == BASE)
+						fprintf(stderr,"(%s): NO ERROR FOR SSL READING, but req too big,%s:%d\n",prog,__FILE__,__LINE__);
 					return -1;
-					/*
-					fprintf(stderr,"the error happens when retrying read\n");
-					ERR_print_errors_fp(stderr);
-					return -1;
-					*/
+				}else {
+					cd[i].retry_handshake = NULL;
+					cd[i].retry_read = NULL;
+					cd[i].retry_write = NULL;
+					cd[i].close_notify = SSL_shutdown;
+					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+						/*TODO*/
+					}
+					return SSL_CLOSE;
 				}
 			}
 
-			req->size = bread;
-			cd[i].retry_read = NULL;
-			if(bread == BASE){
-				fprintf(stderr,"buffer is not big enough\n");
-				/*TODO: read the socket again*/
-			}
-			if(handle_request(req) == BAD_REQ){
+
+			/*
+			 * We know, by design req->req will be max 1024 bytes
+			 * we do not use strlen() it could cause SIGSEGV */
+
+			int j;
+			char *p = &req->req[0];
+			for(j=0;j < BASE && *p; j++, p++);
+
+			assert((j+req->size) < BASE);
+			/*
+			 * if this assertion ever fails, you should considering adding
+			 * memory allocations, or refactor the code;
+			 * */
+
+			if(req->size < j) req->size += (size_t)j;
+
+			int is_body_missing = 0;
+			if((is_body_missing = handle_request(req)) == BAD_REQ){
 				if(req->method == -1) return BAD_REQ;
 				if(req->size < (ssize_t)BASE) return BAD_REQ;
+			}
 
-				if(req->size == (ssize_t)BASE){
-					if(set_up_request(bread,req) == -1) return -1;
-
-					ssize_t move = req->size;
-#if 0
-					if((bread = read(cli_sock,req->d_req +  move,req->size)) == -1){
-						if(errno == EAGAIN || errno == EWOULDBLOCK) {
-							int e = errno;
-							/*TODO: add fd to poll*/
-							return e;
-						}
-						fprintf(stderr,"(%s): cannot read data from socket",prog);
-						return -1;
-					}
-#endif
-				}
+			if(is_body_missing) {
+				cd[i].retry_read = SSL_read_ex;
+				return SSL_READ_E;
 			}
 			cd[i].retry_read = NULL;
 			return 2;
