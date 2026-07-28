@@ -672,10 +672,12 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 			cd[i].retry_handshake = NULL;
 			cd[i].retry_write = NULL;
 			cd[i].close_notify = NULL;
-			/*clear_response(&cd[i].res);*/
-			if(cd[i].buf)
+			clear_response(&cd[i].res);
+			if(cd[i].buf){
 				free(cd[i].buf);
-			return ;
+				cd[i].buf = NULL;
+			}
+			return;
 		}
 
 		return;
