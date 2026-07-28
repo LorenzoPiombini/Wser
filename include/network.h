@@ -109,14 +109,13 @@ struct Url{
 
 struct Connection_data{
 	int fd;
-	int index_buffer; /*where we are in the char *buf*/
     int (*retry_read)(SSL *,void *, size_t, size_t *);
 	int (*retry_handshake)(SSL *);
 	int (*retry_write)(SSL *,const void *,size_t,size_t *);
 	int (*close_notify)(SSL *);
 	SSL *ssl;
 	char *buf;
-	/*struct Response *res;*/
+	struct Response res;
 };
 
 extern struct Connection_data cds[MAX_CON_DAT_ARR];
