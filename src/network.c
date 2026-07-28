@@ -667,10 +667,12 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 			if(cd[i].ssl)
 				SSL_free(cd[i].ssl);
 
+			cd[i].index_buffer = 0;
 			cd[i].retry_read = NULL;
 			cd[i].retry_handshake = NULL;
 			cd[i].retry_write = NULL;
-			clear_response(&cd[i].res);
+			cd[i].close_notify = NULL;
+			/*clear_response(&cd[i].res);*/
 			if(cd[i].buf)
 				free(cd[i].buf);
 			return ;
@@ -686,15 +688,17 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 		if(cd[i].ssl)
 			SSL_free(cd[i].ssl);
 
+		cd[i].index_buffer = 0;
 		cd[i].retry_read = NULL;
 		cd[i].retry_handshake = NULL;
 		cd[i].retry_write = NULL;
-		clear_response(&cd[i].res);
+		cd[i].close_notify = NULL;
+		/*clear_response(&cd[i].res);*/
 		if(cd[i].buf) 
 			free(cd[i].buf);
 	}
-
 }
+
 int read_cli_sock_SSL(int cli_sock,struct Request *req,struct Connection_data *cd)
 {
 	int i;
@@ -1014,6 +1018,7 @@ int perform_http_request(char *URL, char *req, char **body)
 	char *pbuf = &buff[0];
 	char *all_data_from_the_response = NULL;
 	if(ssl_client){
+		/*send the request*/
 		size_t bwritten = 0;
 		while(!SSL_write_ex(ssl_client,req,strlen(req),&bwritten)){
 			if(handle_client_IO(ssl_client,0) == 1)
@@ -1023,6 +1028,7 @@ int perform_http_request(char *URL, char *req, char **body)
 			return -1;
 		}
 
+		/*read the response*/
 		size_t first_alloc = 0;
 		long h_end = 0;
 		int index = 0;
