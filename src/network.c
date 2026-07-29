@@ -680,10 +680,11 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 			if(cd[i].fd != sock) continue;
 
 			cd[i].fd = -1;
-			if(cd[i].ssl)
+			if(cd[i].ssl){
 				SSL_free(cd[i].ssl);
+				cd[i].ssl = NULL;
+			}
 
-			cd[i].index_buffer = 0;
 			cd[i].retry_read = NULL;
 			cd[i].retry_handshake = NULL;
 			cd[i].retry_write = NULL;
@@ -703,17 +704,20 @@ void clean_connecion_data(struct Connection_data *cd, int sock)
 	for(i = 0; i < MAX_CON_DAT_ARR; i++){
 		
 		cd[i].fd = -1;
-		if(cd[i].ssl)
+		if(cd[i].ssl){
 			SSL_free(cd[i].ssl);
+			cd[i].ssl = NULL;
+		}
 
-		cd[i].index_buffer = 0;
 		cd[i].retry_read = NULL;
 		cd[i].retry_handshake = NULL;
 		cd[i].retry_write = NULL;
 		cd[i].close_notify = NULL;
-		/*clear_response(&cd[i].res);*/
-		if(cd[i].buf) 
+		clear_response(&cd[i].res);
+		if(cd[i].buf){
 			free(cd[i].buf);
+			cd[i].buf = NULL;
+		}
 	}
 }
 
