@@ -517,21 +517,28 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		if((r = SSL_write_ex(cd[i].ssl,res->header_str,strlen(res->header_str),&bwritten)) == 0){
 			int err = SSL_get_error(cd[i].ssl,r);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLIN) == -1){
-					/*SSL_free(cd[i].ssl);*/
-					/*remove_socket_from_monitor(cli_sock);*/
+				if(modify_monitor_event(cli_sock, err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+					fprintf(stderr,"(%s): cannot change event on socket. %s:%d.\n",prog,__FILE__,__LINE__-1);
 					return -1;
 				}
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
 				cd[i].retry_write = SSL_write_ex;
 				memcpy(&cd[i].res,res,sizeof(struct Response));
 				return SSL_WRITE_E;
 			}else{
-				//remove_socket_from_monitor(cli_sock);
-				cd[i].fd = -1;
+				fprintf(stderr,"the error happens when writying to socket\n");
+				ERR_print_errors_fp(stderr);
+				cd[i].retry_handshake = NULL;
+				cd[i].retry_read = NULL;
+				cd[i].retry_write = NULL;
+				cd[i].close_notify = SSL_shutdown;
+				if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+					fprintf(stderr,"(%s): cannot change event on socket. %s:%d.\n",prog,__FILE__,__LINE__-1);
+					return -1;
+				}
 				return -1;
 			}
-			fprintf(stderr,"(%s): cannot write to socket.\n",prog);
-			return -1;
 		}
 	}else{
 		size_t bwritten;
@@ -539,9 +546,8 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 		if((r = SSL_write_ex(cd[i].ssl,buff,strlen(buff),&bwritten)) == 0){
 			int err = SSL_get_error(cd[i].ssl,r);
 			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				if(modify_monitor_event(cli_sock,EPOLLOUT | EPOLLIN) == -1) {
-				//	SSL_free(cd[i].ssl);
-				//	remove_socket_from_monitor(cli_sock);
+				if(modify_monitor_event(cli_sock, err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
+					fprintf(stderr,"(%s): cannot change event on socket. %s:%d.\n",prog,__FILE__,__LINE__-1);
 					return -1;
 				}
 
@@ -552,11 +558,21 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
 				return SSL_WRITE_E;
 			}
 
+			fprintf(stderr,"the error happens when writying to socket\n");
+			ERR_print_errors_fp(stderr);
+			cd[i].retry_handshake = NULL;
+			cd[i].retry_read = NULL;
+			cd[i].retry_write = NULL;
+			cd[i].close_notify = SSL_shutdown;
+			if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+				fprintf(stderr,"(%s): cannot change event on socket. %s:%d.\n",prog,__FILE__,__LINE__-1);
+				return -1;
+			}
+
 			free(buff);
 			fprintf(stderr,"(%s): cannot write to socket.\n",prog);
 			return -1;
 		}
-		//remove_socket_from_monitor(cli_sock);
 		cd[i].fd = -1;
 		free(buff);
 	}

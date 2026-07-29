@@ -566,20 +566,12 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				}else{
 					fprintf(stderr,"the error happens when retrying handshake\n");
 					ERR_print_errors_fp(stderr);
-					int i;
-					for(i = 0; i < MAX_CON_DAT_ARR;i++){
-						if(cd[i].fd == 0 || cd[i].fd == -1){
-							cd[i].fd = cli_sock;
-							cd[i].ssl = *ssl;
-							cd[i].retry_handshake = NULL;
-							cd[i].retry_read = NULL;
-							cd[i].retry_write = NULL;
-							cd[i].close_notify = SSL_shutdown;
-							if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-								/*TODO*/
-							}
-							break;
-						}
+					cd[i].retry_handshake = NULL;
+					cd[i].retry_read = NULL;
+					cd[i].retry_write = NULL;
+					cd[i].close_notify = SSL_shutdown;
+					if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						/*TODO*/
 					}
 					return SSL_CLOSE;
 				}
@@ -738,22 +730,13 @@ static int handle_ssl_steps(struct Connection_data *cd,
 					}
 					return SSL_WRITE_E;
 				}else{
-
 					ERR_print_errors_fp(stderr);
-					int i;
-					for(i = 0; i < MAX_CON_DAT_ARR;i++){
-						if(cd[i].fd == 0 || cd[i].fd == -1){
-							cd[i].fd = cli_sock;
-							cd[i].ssl = *ssl;
-							cd[i].retry_handshake = NULL;
-							cd[i].retry_read = NULL;
-							cd[i].retry_write = NULL;
-							cd[i].close_notify = SSL_shutdown;
-							if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-								/*TODO*/
-							}
-							break;
-						}
+					cd[i].retry_handshake = NULL;
+					cd[i].retry_read = NULL;
+					cd[i].retry_write = NULL;
+					cd[i].close_notify = SSL_shutdown;
+					if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						/*TODO*/
 					}
 					return SSL_CLOSE;
 				}
