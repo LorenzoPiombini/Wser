@@ -3,7 +3,7 @@
 
 #define STD_REQ_BDY_CNT	8192
 #define MIN_HEAD_FIELD 50
-#define BASE 1024
+#define BASE 1024*2
 #define BAD_REQ 400
 #define BDY_MISS 600
 #define OK 200 
