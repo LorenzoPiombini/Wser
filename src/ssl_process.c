@@ -525,7 +525,8 @@ static int handle_ssl_steps(struct Connection_data *cd,
 				break;
 			}
 		}
-		/*We know, by design req->req will be max 1024 bytes
+
+		/*We know, by design req->req will be max 2048 bytes
 		 * we do not use strlen() it could cause SIGSEGV */
 
 		int j;
@@ -617,7 +618,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 			}
 
 
-			/*We know, by design req->req will be max 1024 bytes
+			/*We know, by design req->req will be max 2048 bytes
 			 * we do not use strlen() it could cause SIGSEGV */
 
 			int j;
@@ -687,7 +688,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 
 			/*
-			 * We know, by design req->req will be max 1024 bytes
+			 * We know, by design req->req will be max 2048 bytes
 			 * we do not use strlen() it could cause SIGSEGV */
 
 			int j;
