@@ -422,7 +422,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 						cd[i].fd = cli_sock;
 						cd[i].ssl = *ssl;
 						cd[i].retry_handshake = SSL_accept;
-						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
+						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
 							/*TODO*/
 						}
 						break;
