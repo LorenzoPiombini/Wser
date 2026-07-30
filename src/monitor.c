@@ -43,6 +43,10 @@ int monitor_events(int timer)
 		fprintf(stderr,"(%s): epoll_wait() failed %s:%d.\n",prog,__FILE__,__LINE__);
 		return -1;
 	}
+	if(nfds == 0){
+		fprintf(stderr,"(%s): timer expired! %s:%d.\n",prog,__FILE__,__LINE__);
+		return -1;
+	}
 	return nfds;
 }
 

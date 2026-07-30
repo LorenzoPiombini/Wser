@@ -228,8 +228,8 @@ int SSL_work_process(int data_sock)
 loop:
 				int nfds =-1,j;
 				for(;;){
-					/*start monitoring event with a timer of 1 minute*/
-					if((nfds = monitor_events(1000*60)) == -1) goto teardown;
+					/*start monitoring event with a timer of 5 seconds*/
+					if((nfds = monitor_events(5000)) == -1) goto teardown;
 					if(nfds == EINTR){
 						continue; /*change with goto teardwn in prod*/
 					}
