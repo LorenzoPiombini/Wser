@@ -11,7 +11,7 @@ extern int nfds;
 extern int epollfd;
 
 int start_monitor(int sock);
-int monitor_events();
+int monitor_events(int timer);
 int add_socket_to_monitor(int sock, int event);
 int remove_socket_from_monitor(int sock);
 int modify_monitor_event(int sock, int event);

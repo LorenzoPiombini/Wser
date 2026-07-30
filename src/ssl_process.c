@@ -131,7 +131,7 @@ int SSL_work_process(int data_sock)
 	SSL *ssl_cli = NULL;
 	for(;;){
 		
-		if((nfds = monitor_events()) == -1) goto teardown_a;
+		if((nfds = monitor_events(-1)) == -1) goto teardown_a;
 		if(nfds == EINTR){
 			if(reload_certificate){
 				reload_certificate = 0;
@@ -228,7 +228,8 @@ int SSL_work_process(int data_sock)
 loop:
 				int nfds =-1,j;
 				for(;;){
-					if((nfds = monitor_events()) == -1) goto teardown;
+					/*start monitoring event with a timer of 1 minute*/
+					if((nfds = monitor_events(1000*60)) == -1) goto teardown;
 					if(nfds == EINTR){
 						continue; /*change with goto teardwn in prod*/
 					}

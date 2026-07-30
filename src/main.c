@@ -178,7 +178,7 @@ int main(int argc, char **argv)
 	memset(&res,0,sizeof(struct Response));
 
 	for(;;){
-		if((nfds = monitor_events()) == -1) break;	
+		if((nfds = monitor_events(-1)) == -1) break;	
 		if(nfds == EINTR) continue;
 		for(int i = 0; i < nfds; i++){
 

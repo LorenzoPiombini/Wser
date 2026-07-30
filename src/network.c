@@ -1520,7 +1520,7 @@ static int wait_for_activity(SSL *ssl, int w_r)
 		return -1;
 
 	modify_monitor_event(fd,w_r ? EPOLLOUT : EPOLLIN);
-	int n = monitor_events();
+	int n = monitor_events(-1);
 	return n;
 }
 

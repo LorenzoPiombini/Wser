@@ -34,10 +34,10 @@ int start_monitor(int sock)
 	return 0;
 }
 
-int monitor_events()
+int monitor_events(int timer)
 {
 	errno = 0;
-	nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+	nfds = epoll_wait(epollfd, events, MAX_EVENTS, timer);
 	if(nfds == -1){
 		if(errno == EINTR) return errno;
 		fprintf(stderr,"(%s): epoll_wait() failed %s:%d.\n",prog,__FILE__,__LINE__);
