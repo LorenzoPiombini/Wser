@@ -145,6 +145,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	case POST:
 	{
 		switch(resource){
+		case N_ITEM:
 		case NEW_CUST:
 		{
 			/*convert json in db_string*/
