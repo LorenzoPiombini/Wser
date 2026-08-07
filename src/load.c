@@ -13,7 +13,7 @@ static int check_URL_encoding(char *p);
 
 #ifdef OWN_DB
 
-#include "work_process.h" /* database handler*/
+#include "worker_process.h" /* database handler*/
 #include "end_points.h"
 #include "lua_start.h"
 #include "ctype.h"
@@ -192,19 +192,19 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return -1;
 			}
 
-			if(read_buffer[0] == '\0'){
-				free(b);
-				return -1;
-			}
+			short int error = *(short int*)read_buffer;
 
-			if(snprintf(cont->cnt_st,1024,"%s",read_buffer) == -1){
+			if(snprintf(cont->cnt_st,1024,"%s",&read_buffer[2]) == -1){
 				/*log error*/
 				free(b);
 				return -1;
 			}
 			cont->size = strlen(cont->cnt_st);
 			free(b);
-			return 0;
+			if(error == 0)
+				return 0;
+			else
+				return -1;
 		}
 		case NEW_SORD:
 		case UPDATE_SORD:
