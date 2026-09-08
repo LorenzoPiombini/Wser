@@ -597,6 +597,11 @@ static char *convert_json(char* body)
 	int string = 0;
 	int i = 0;
 	for(char *p = &body[1]; *p != '\0'; p++){
+		if(i >= sizeof(db_entry) - 1 ){
+			db_entry[0] = '\0';
+			return &db_entry[0];
+		}
+
 		if(*p == ']'){
 			if(n_array) 
 				n_array = 0;
