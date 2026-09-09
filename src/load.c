@@ -136,6 +136,10 @@ void clear_content(struct Content *cont){
  *  this is just a sales order system
  * */
 #ifdef OWN_DB
+static const char new_cust_whitelist[] = {
+	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id", NULL
+	};
+
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 {
 	int resource = map_end_point(req->resource); 
@@ -187,19 +191,30 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			 *
 			 * */
 			char read_buffer[MAX_CONT_SZ];
-			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){
+			int read_res = 0;
+			if((read_res = read(data_sock,read_buffer,MAX_CONT_SZ)) == -1){
+				free(b);
+				return -1;
+			}
+
+			if(read_res < 2){
 				free(b);
 				return -1;
 			}
 
 			short int error = *(short int*)read_buffer;
-
-			if(snprintf(cont->cnt_st,1024,"%s",&read_buffer[2]) == -1){
-				/*log error*/
+			int pay_load = read_res -2;
+			if(read_res < 1023){
+				memcpy(cont->cnt_st,&read_buffer[2],pay_load);
+			}else{
+				/*Maybe allocate memory*/
+				fprintf(stderr,"code refactor needed, %s:%d.\n",__FILE__,__LINE__);
 				free(b);
 				return -1;
 			}
-			cont->size = strlen(cont->cnt_st);
+
+			cont->cnt_st[pay_load] = '\0';
+			cont->size = pay_load;
 			free(b);
 			if(error == 0)
 				return 0;
@@ -209,7 +224,6 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 		case NEW_SORD:
 		case UPDATE_SORD:
 		{
-
 			/*save the sales order in the db */
 			char *db = NULL;
 			if(req->req_body.d_cont)
@@ -583,9 +597,10 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	return 0;
 }	
 /*
- * This translate the JSON object from the UI in 
+ * This translate the JSON object from the web UI in 
  * the string to add data to the Database
  * */
+
 static char *convert_json(char* body)
 {
 	static char db_entry[1024] = {0};
