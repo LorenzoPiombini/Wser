@@ -9,6 +9,7 @@ struct Content{
 	size_t size;
 };
 
+
 int load_resource(char *rpath, struct Content *cont);
 void clear_content(struct Content *cont);
 

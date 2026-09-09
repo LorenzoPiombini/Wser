@@ -136,8 +136,8 @@ void clear_content(struct Content *cont){
  *  this is just a sales order system
  * */
 #ifdef OWN_DB
-static const char new_cust_whitelist[] = {
-	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id", NULL
+static const char *new_cust_whitelist[] = {
+	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id",NULL
 	};
 
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
