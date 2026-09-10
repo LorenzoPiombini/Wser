@@ -1,11 +1,13 @@
 #include <stdio.h>
+#include <ctype.h>
 #include <string.h>
 #include "json.h"
 
 
 static void skip_ws(const char* json,size_t len, size_t *i);
-static void parse_string()
-static void parse_number()
+static int parse_string(const char  *json,size_t len,size_t *i);
+static int parse_number(const char  *json,size_t len,size_t *i);
+
 int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t max_tokens)
 {
 	if(len > 0 
@@ -52,6 +54,8 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			break;
 		}
 		case '"':
+				  parse_string(json,len,tokens,&i);
+				  break;
 		case ',':
 		case ':':
 		default: /*number or literal*/
@@ -79,6 +83,62 @@ static void skip_ws(const char* json,size_t len, size_t *i)
 	*i = k;
 }
 
+static int parse_string(const char  *json,size_t len,struct Json_token *t, size_t *i)
+{
+
+	size_t k = *i + 1;
+	t->start = (int)k;
+
+	while(k < len){
+		unsigned char c = (unsigned char)json[k];
+
+		switch(c){
+		case '"':
+		{
+			t->end = (int)k;
+			t->type = STRING;
+			*i = k + 1;
+			return 0;
+		}
+		case '\\':
+		{
+			k++;
+			if(k >= len) return JSON_INVALID_ERR;
+			switch(json[k]){
+			case '"':
+			case '\\':
+			case '/':
+			case 'f':
+			case 'r':
+			case 't':
+			case 'b':
+			case 'n':
+				k++;
+				break;
+			case 'u':
+				if(k + 4 >= len) return JSON_INVALID_ERR;
+				int j = 1;
+				while(j<=4) if(!isxdigit(json[k + j++])) return JSON_INVALID_ERR;
+
+				k += 5;
+				break;
+			default:
+				return JSON_INVALID_ERR;
+			}
+			break;
+		}
+		default:
+			if(c < 0x20) return JSON_INVALID_ERR;
+			k++;
+			break;
+		}
+
+		
+
+	}
+
+	return JSON_INVALID_ERR;
+}
 #if 0
 
 static parse_string()

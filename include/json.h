@@ -6,9 +6,12 @@
 /*Mini Json parser def*/
 /*json grammar*/
 enum json_type{
-	PRIMITIVE, /*can be string,number,true,false,false*/
 	OBJECT,
-	ARRAY
+	ARRAY,
+	STRING_K,
+	STRING_V,
+	BOOLEAN,
+	NUL
 };
 
 enum sturctural_chars{
