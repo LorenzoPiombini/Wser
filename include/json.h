@@ -8,8 +8,7 @@
 enum json_type{
 	OBJECT,
 	ARRAY,
-	STRING_K,
-	STRING_V,
+	STRING,
 	BOOLEAN,
 	NUL
 };
