@@ -5,7 +5,7 @@
 
 
 static void skip_ws(const char* json,size_t len, size_t *i);
-static int parse_string(const char  *json,size_t len,size_t *i);
+static int parse_string(const char  *json,size_t len,struct Json_token *t, size_t *i);
 static int parse_number(const char  *json,size_t len,size_t *i);
 
 int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t max_tokens)
@@ -43,7 +43,9 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			break;
 		}
 		case '}':
-		case ']': { if(depth == 0) return JSON_INVALID_ERR;
+		case ']': 
+		{ 
+			if(depth == 0) return JSON_INVALID_ERR;
 			depth--;
 			int expect = json[i] == '}' ? OBJECT : ARRAY;
 			if(tokens[stack[depth]].type != expect) return JSON_INVALID_ERR;
@@ -54,8 +56,13 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			break;
 		}
 		case '"':
-				  parse_string(json,len,tokens,&i);
-				  break;
+		{
+			if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT;
+			tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+			if(parse_string(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
+			tk_count++;
+			break;
+		}
 		case ',':
 		case ':':
 		default: /*number or literal*/
