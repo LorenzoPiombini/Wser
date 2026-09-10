@@ -6,7 +6,8 @@
 
 static void skip_ws(const char* json,size_t len, size_t *i);
 static int parse_string(const char  *json,size_t len,struct Json_token *t, size_t *i);
-static int parse_number(const char  *json,size_t len,size_t *i);
+static int parse_number(const char  *json,size_t len,struct Json_token *t, size_t *i);
+static int parse_literal(const char  *json,size_t len,struct Json_token *t, size_t *i);
 
 int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t max_tokens)
 {
@@ -65,10 +66,21 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 		}
 		case ',':
 		case ':':
-		default: /*number or literal*/
 			i++;
 			break;
-
+		default: /*number or literal*/
+			if(json[i] == 0x2D || (json[i] >= 0x30 && json[i] <= 0x39)){
+				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT;
+				tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+				if(parse_number(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
+				tk_count++;
+			}else{
+				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT;
+				tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+				if(parse_literal(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
+				tk_count++;
+			}
+			break;
 		}
 		skip_ws(json,len,&i);
 	}
@@ -146,27 +158,59 @@ static int parse_string(const char  *json,size_t len,struct Json_token *t, size_
 
 	return JSON_INVALID_ERR;
 }
-#if 0
 
-static parse_string()
+static int parse_number(const char  *json,size_t len,struct Json_token *t, size_t *i)
 {
-	for(int i = 0; i < len;i++, p++){
-		switch(*p){
-		case '"': 
-		{
-			int start = (int)(p - json);
-			p++;
-			while(*p != '"') p++;
-			int end = (int)(p - json);
-			while(*p != ':' && *p != ',') p++;
-			if(*p == ':') {
-				/*it is a key!*/
-			}
-			break;
-		}
-		default:
-			break;
-		}
+	size_t k = *i;
+	t->start = (int)k;
+	if(k < len && (json[k] == '-' || json[k] == '+')) k++;
+	if(k < len && json[k] == '0' &&  k+1 < len && isdigit((unsigned char)json[k+1])) return JSON_INVALID_ERR;
+
+	if(k >= len || !isdigit((unsigned char)json[k])) return JSON_INVALID_ERR; 
+	
+	while(k < len && isdigit((unsigned char)json[k])) k++;
+
+	if(k < len && json[k] == '.'){
+		k++;
+		if(k >= len || !isdigit((unsigned char)json[k])) return JSON_INVALID_ERR; 
+		while(k < len && isdigit((unsigned char)json[k])) k++;
 	}
+
+	if(k < len && (json[k] == 'e' || json[k] == 'E')){
+		k++;
+		if(k < len && (json[k] == '-' || json[k] == '+')) k++;
+
+		if(k >= len || !isdigit((unsigned char)json[k])) return JSON_INVALID_ERR; 
+		while(k < len && isdigit((unsigned char)json[k])) k++;
+	}
+
+	t->type = NUMBER;
+	t->end = (int)k;
+	*i = k;
+	return 0;
 }
-#endif
+
+static int parse_literal(const char  *json,size_t len,struct Json_token *t, size_t *i)
+{
+	size_t k = *i;
+	t->start = (int)k;
+
+	/*false, true, null*/
+	if(k + 4 <= len && strncmp(&json[k],"true",4) == 0){
+		t->type = TRUE;
+		k += 4;
+	}else if( k + 4 <= len && strncmp(&json[k],"null",4) == 0){
+		t->type = NUL;
+		k += 4;
+	}else if(k + 5 <= len && strncmp(&json[k],"false",5) == 0){
+		t->type = FALSE;
+		k += 5;
+	}else{
+		return JSON_INVALID_ERR;
+	}
+
+	t->end = (int)k;
+	*i = k;
+	return 0;
+}
+

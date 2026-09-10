@@ -9,7 +9,9 @@ enum json_type{
 	OBJECT,
 	ARRAY,
 	STRING,
-	BOOLEAN,
+	NUMBER,
+	TRUE,
+	FALSE,
 	NUL
 };
 
