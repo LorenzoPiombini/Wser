@@ -6,6 +6,7 @@
 #include "load.h"
 #include "request.h"
 #include "default.h"
+#include "json.h"
 
 static char prog[] = "wser";
 static char *map_rpath(char *rpath);
@@ -18,7 +19,6 @@ static int check_URL_encoding(char *p);
 #include "lua_start.h"
 #include "ctype.h"
 #include <assert.h>
-static char *convert_json(char* body);
 const int EIGHTkib_limit = 1024 * 8;
 #endif
 
@@ -143,7 +143,7 @@ static const char *new_cust_whitelist[] = {
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 {
 	int resource = map_end_point(req->resource); 
-	if(resource == -1) return -1;
+	if(resource == -1) return 400;
 
 	switch(req->method){
 	case POST:
@@ -152,54 +152,69 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 		case N_ITEM:
 		case NEW_CUST:
 		{
-			/*convert json in db_string*/
-			char *db = 0x0;
-			if(req->req_body.d_cont)
-				db = convert_json(req->req_body.d_cont);
-			else
-				db = convert_json(req->req_body.content);
+			/* parse json */
+			struct Json_token tokens[JSON_MAX_TOKENS] = {0};
+			size_t json_len = (size_t)req->req_body.size;
+			char *preq = NULL;
+			if(req->req_body.d_cont){
+				preq = req->req_body.d_cont;
+			}else{
+				preq = req->req_body.content;
+			}
 
-			assert(db != NULL);
-			if(db[0] == '\0') return -1;
+			int token_nr = json_parser((const char *)preq,json_len,tokens,JSON_MAX_TOKENS);
 
-			/*1 is the space  for '\0'*/
-			size_t db_len = strlen(db);
-			size_t size_buffer = db_len + sizeof(uint16_t)+ 1;
+			switch(token_nr){
+			case JSON_INVALID_ERR:
+			case JSON_DEPTH_LIMIT_ERR:
+			case JSON_TK_LIMIT_ERR:
+				return 400;
+			default: break;
+			}
+
+			/*whitelist the json request*/
+			
+
+			size_t size_buffer = sizeof(uint16_t) + json_len + token_nr* sizeof(struct Json_token);
 			uint16_t *buffer = malloc(size_buffer);
 			if(!buffer){
 				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
 				return -1;
 			}
-
 			memset(buffer,0,size_buffer);
 
 			*buffer = (uint16_t)resource;
+			uint16_t *b = (uint16_t*)buffer;
 			buffer += 1;
-			strncpy((char*)buffer,db,db_len);
+			strncpy((char*)buffer,preq,json_len);
+			if(write_actual_json_tokens_to_mem((char *)buffer + sizeof(uint16_t) + json_len,
+									size_buffer - sizeof(uint16_t) - json_len,
+									tokens,token_nr) == -1){
+				free(b);
+				return 500;
+			}
 
-			uint16_t *b = (uint16_t*)buffer - 1;
 			/*send data to the worker process*/
 			if(write(data_sock,b,size_buffer - 1) == -1){ 
 				free(b);
-				return -1;
+				return 500;
 			}
 
 			/*TODO: refactor the socket comunication so that you read once with 
 			 * the size of the next message then you allocate a buffer accordangly so 
 			 * you can be eficient
-			 * 
 			 *
 			 * */
-			char read_buffer[MAX_CONT_SZ];
+			char read_buffer[MAX_CONT_SZ] = {0};
 			int read_res = 0;
 			if((read_res = read(data_sock,read_buffer,MAX_CONT_SZ)) == -1){
 				free(b);
-				return -1;
+				return 500;
 			}
 
 			if(read_res < 2){
 				free(b);
-				return -1;
+				return 500;
 			}
 
 			short int error = *(short int*)read_buffer;
@@ -210,16 +225,16 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				/*Maybe allocate memory*/
 				fprintf(stderr,"code refactor needed, %s:%d.\n",__FILE__,__LINE__);
 				free(b);
-				return -1;
+				return 500;
 			}
 
 			cont->cnt_st[pay_load] = '\0';
 			cont->size = pay_load;
 			free(b);
 			if(error == 0)
-				return 0;
+				return 201;
 			else
-				return -1;
+				return 400;
 		}
 		case NEW_SORD:
 		case UPDATE_SORD:
@@ -596,116 +611,6 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	}
 	return 0;
 }	
-/*
- * This translate the JSON object from the web UI in 
- * the string to add data to the Database
- * */
-
-static char *convert_json(char* body)
-{
-	static char db_entry[1024] = {0};
-	memset(db_entry,0,1024);
-	int array = 0;
-	int n_array = 0;
-	int n_obj_arr = 0;
-	int n_obj = 0;
-	int string = 0;
-	int i = 0;
-	for(char *p = &body[1]; *p != '\0'; p++){
-		if(i >= sizeof(db_entry) - 1 ){
-			db_entry[0] = '\0';
-			return &db_entry[0];
-		}
-
-		if(*p == ']'){
-			if(n_array) 
-				n_array = 0;
-			else
-				array = 0;
-
-			continue;
-		}
-
-		if(*p == ',' && !string) {
-			db_entry[i] = ':';
-			i++;
-			continue;
-		}
-
-		if(*p == '}'){
-			if(n_obj_arr){
-				n_obj_arr = 0;
-				db_entry[i] = ']';
-				i++;
-				/* 
-				 * the following if statment check if we have more
-				 * than one object in the array
-				 * and format the db_entry accordingly
-				 * */
-				if(*(p + 1) == ','){
-					db_entry[i] = ',';
-					i++;
-					p++;
-				}
-			}else if (n_obj){
-				n_obj = 0;
-			}
-			continue;
-		}
-
-		if(*p == '{'){
-			if(array){
-				n_obj_arr = 1;
-				/*file as a field syntax*/
-				db_entry[i] = '[';
-				i++;
-				db_entry[i] = 'w';
-				i++;
-				db_entry[i] = '|';
-				i++;
-			}else{	
-				n_obj = 1;
-			}
-		}
-
-		if(*p == '['){
-			if(array)
-				n_array = 1;
-			else
-				array = 1;
-			continue;
-		}
-
-		if(*p == ':' && string == 0){
-			db_entry[i] = *p;
-			i++;
-			continue;
-		}
-
-		if(*p == ' ' && !string) continue;
-		if(*p == '"') {
-			if(string)
-				string = 0;
-			else
-				string = 1;
-			continue;
-		}
-
-		if(string){
-			db_entry[i] = *p;
-			i++;
-			continue;
-		}	
-
-		if(isdigit(*p)){
-			db_entry[i] = *p;
-			i++;
-			continue;
-		}
-	}
-
-	return &db_entry[0];
-}
 #endif
 
 static int check_URL_encoding(char *p)

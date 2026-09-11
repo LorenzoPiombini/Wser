@@ -26,8 +26,8 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 
 	skip_ws(json,len,&i);
 	while(i < len){
-		if(tk_count >= max_tokens) return JSON_TK_LIMIT;
-		if(depth >= JSON_MAX_DEPTH) return JSON_DEPTH_LIMIT;
+		if(tk_count >= (int)max_tokens) return JSON_TK_LIMIT_ERR;
+		if(depth >= JSON_MAX_DEPTH) return JSON_DEPTH_LIMIT_ERR;
 
 		switch(json[i]){
 		case '{':
@@ -58,7 +58,7 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 		}
 		case '"':
 		{
-			if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT;
+			if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
 			tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
 			if(parse_string(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
 			tk_count++;
@@ -70,12 +70,12 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			break;
 		default: /*number or literal*/
 			if(json[i] == 0x2D || (json[i] >= 0x30 && json[i] <= 0x39)){
-				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT;
+				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
 				tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
 				if(parse_number(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
 				tk_count++;
 			}else{
-				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT;
+				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
 				tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
 				if(parse_literal(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
 				tk_count++;
@@ -89,6 +89,14 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 	if(depth != 0) return JSON_INVALID_ERR;
 	return tk_count;
 }
+
+int write_actual_json_tokens_to_mem(char *buf,size_t buf_size, struct Json_token *t,size_t token_size)
+{
+	if((sizeof *t * token_size) > buf_size) return -1;
+	memcpy(buf,t,sizeof *t * token_size);	
+	return 0;
+}
+
 
 
 static void skip_ws(const char* json,size_t len, size_t *i)

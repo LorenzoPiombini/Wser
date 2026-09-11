@@ -3,6 +3,7 @@
 #define _JSON_H_ 1
 
 #define JSON_MAX_DEPTH 20
+#define JSON_MAX_TOKENS 512
 /*Mini Json parser def*/
 /*json grammar*/
 enum json_type{
@@ -34,23 +35,19 @@ enum ws{
 
 enum json_error{
 	JSON_INVALID_ERR = -1,
-	JSON_TK_LIMIT = -2,
-	JSON_DEPTH_LIMIT = -3
+	JSON_TK_LIMIT_ERR = -2,
+	JSON_DEPTH_LIMIT_ERR = -3
 };
 
 struct Json_token{
-	enum json_type type;
+	int type;
 	int start;
 	int end;
 	int size;/*children*/
 	int parent;
 };
 
-struct json{
-	char *json_string;
-	struct offsets *key_offsets;
-	struct offsets *values_offsets;
-};
 
 int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t max_tokens);
+int write_actual_json_tokens_to_mem(char *buf,size_t buf_size, struct Json_token *t,size_t token_size);
 #endif
