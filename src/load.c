@@ -20,6 +20,7 @@ static int check_URL_encoding(char *p);
 #include "ctype.h"
 #include <assert.h>
 const int EIGHTkib_limit = 1024 * 8;
+static int key_allowed(char *wlist,const char* json, struct Json_token *k);
 #endif
 
 int load_resource(char *rpath, struct Content *cont)
@@ -136,7 +137,7 @@ void clear_content(struct Content *cont){
  *  this is just a sales order system
  * */
 #ifdef OWN_DB
-static const char *new_cust_whitelist[] = {
+static const char *CUSTOMER_FILEDS[] = {
 	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id",NULL
 	};
 
@@ -172,8 +173,20 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			default: break;
 			}
 
-			/*whitelist the json request*/
-			
+			if(tokens[0].size * 2 + 1 != token_nr) return 400; 
+			if(tokens[0].type != OBJECT) return 400;
+
+
+			/*check the keys*/
+			for(int m = 0; tokens[0].size; m++){
+				int ki = 1 + m * 2;
+				int vi = 2 + m * 2;
+				if(vi >= token_nr) return 400;
+				if(tokens[ki].type != STRING) return 400;
+				if(!key_allowed(CUSTOMER_FILEDS,preq,&tokens[ki]) return 400;
+			}
+		
+			/*DATA IS GOOD*/
 
 			size_t size_buffer = sizeof(uint16_t) + json_len + token_nr* sizeof(struct Json_token);
 			uint16_t *buffer = malloc(size_buffer);
@@ -611,6 +624,18 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	}
 	return 0;
 }	
+
+static int key_allowed(char *wlist,const char* json, struct Json_token *k)
+{
+
+	int k_len = k->end - k->start;
+	for(int i = 0; wlist[i];i++){
+		if((int)strlen(wlist[i]) == k_len 
+				&& memcmp(wlist[i],&json[k->start],k_len) == 0) return 1
+	}
+
+	return 0;
+}
 #endif
 
 static int check_URL_encoding(char *p)
