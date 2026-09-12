@@ -37,10 +37,11 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			tokens[tk_count].start = i;
 			tokens[tk_count].size = 0;
 			tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+
+			if(depth > 0) tokens[stack[depth-1]].size++;
 			stack[depth++] = tk_count;
 			tk_count++;
 			i++;
-			if(depth > 0) tokens[stack[depth-1]].size++;
 			break;
 		}
 		case '}':
@@ -53,13 +54,13 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 
 			tokens[stack[depth]].end = i + 1;
 			i++;
-			if(depth > 0) tokens[stack[depth-1]].size++;
 			break;
 		}
 		case '"':
 		{
 			if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
 			tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+			if(depth > 0) tokens[stack[depth-1]].size++;
 			if(parse_string(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
 			tk_count++;
 			break;
@@ -72,11 +73,17 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			if(json[i] == 0x2D || (json[i] >= 0x30 && json[i] <= 0x39)){
 				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
 				tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+
+				if(depth > 0) tokens[stack[depth-1]].size++;
+
 				if(parse_number(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
 				tk_count++;
 			}else{
 				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
 				tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
+
+				if(depth > 0) tokens[stack[depth-1]].size++;
+
 				if(parse_literal(json,len,&tokens[tk_count],&i) < 0) return JSON_INVALID_ERR;
 				tk_count++;
 			}
