@@ -127,6 +127,7 @@ void clear_content(struct Content *cont){
  *  this is just a sales order system
  * */
 #ifdef OWN_DB
+#define MAX_KEY_ALLOWED 10
 static const char *CUSTOMER_FILEDS[] = {
 	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id",NULL
 	};
@@ -173,12 +174,16 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			char **allowed = (resource == NEW_CUST) ? (char**)CUSTOMER_FILEDS : (char**)ITEM_FIELDS;
 
 			/*check the keys*/
+			int seen[MAX_KEY_ALLOWED] = {0};
 			for(int m = 0; m < tokens[0].size; m++){
 				int ki = 1 + m * 2;
 				int vi = 2 + m * 2;
 				if(vi >= token_nr) return 400;
 				if(tokens[ki].type != STRING) return 400;
-				if(!key_allowed(allowed,preq,&tokens[ki])) return 400;
+				int idx = key_allowed(allowed,preq,&tokens[ki]);
+				if(idx == -1) return 400; /*key not allowed*/
+				if(seen[idx]) return 400; /*duplicate key*/
+				seen[idx]++;
 			}
 
 			/*TODO: implement double key detection*/
@@ -250,12 +255,16 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 		{
 			char **allowed = (char**)NEW_ORD_FIELDS ;
 			/*check the keys*/
+			int seen[MAX_KEY_ALLOWED] = {0};
 			for(int m = 0; m < tokens[0].size; m++){
 				int ki = 1 + m * 2;
 				int vi = 2 + m * 2;
 				if(vi >= token_nr) return 400;
 				if(tokens[ki].type != STRING) return 400;
-				if(!key_allowed(allowed,preq,&tokens[ki])) return 400;
+				int idx = key_allowed(allowed,preq,&tokens[ki]);
+				if(idx == -1) return 400; /*key not allowed*/
+				if(seen[idx]) return 400; /*duplicate key*/
+				seen[idx]++;
 			}
 
 			/*TODO this will have to change*/
@@ -605,7 +614,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	default:
 	break;	
 	}
-	return 0;
+	return 400;/*if program reach this line, request is wrong*/
 }	
 
 static int key_allowed(char **wlist,const char* json, struct Json_token *k)
@@ -613,9 +622,9 @@ static int key_allowed(char **wlist,const char* json, struct Json_token *k)
 	int k_len = k->end - k->start;
 	for(int i = 0; wlist[i];i++){
 		if((int)strlen(wlist[i]) == k_len 
-				&& memcmp(wlist[i],&json[k->start],k_len) == 0) return 1;
+				&& memcmp(wlist[i],&json[k->start],k_len) == 0) return i;
 	}
-	return 0;
+	return -1;
 }
 #endif
 
