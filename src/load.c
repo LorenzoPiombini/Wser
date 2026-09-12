@@ -166,6 +166,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			int token_nr = json_parser((const char *)preq,json_len,tokens,JSON_MAX_TOKENS);
 
 			switch(token_nr){
+			case 0:
 			case JSON_INVALID_ERR:
 			case JSON_DEPTH_LIMIT_ERR:
 			case JSON_TK_LIMIT_ERR:
@@ -176,16 +177,18 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			if(tokens[0].size * 2 + 1 != token_nr) return 400; 
 			if(tokens[0].type != OBJECT) return 400;
 
+			const char *allowed = (resource == NEW_CUST) ? CUSTOMER_FILEDS : ITEM_FIELDS;
 
 			/*check the keys*/
-			for(int m = 0; tokens[0].size; m++){
+			for(int m = 0; m < tokens[0].size; m++){
 				int ki = 1 + m * 2;
 				int vi = 2 + m * 2;
 				if(vi >= token_nr) return 400;
 				if(tokens[ki].type != STRING) return 400;
-				if(!key_allowed(CUSTOMER_FILEDS,preq,&tokens[ki]) return 400;
+				if(!key_allowed(allowed,preq,&tokens[ki]) return 400;
 			}
 		
+			/*TODO: implement double key detection*/
 			/*DATA IS GOOD*/
 
 			size_t size_buffer = sizeof(uint16_t) + json_len + token_nr* sizeof(struct Json_token);
