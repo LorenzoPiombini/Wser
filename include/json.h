@@ -7,13 +7,13 @@
 /*Mini Json parser def*/
 /*json grammar*/
 enum json_type{
-	OBJECT,
-	ARRAY,
-	STRING,
-	NUMBER,
-	TRUE,
-	FALSE,
-	NUL
+	OBJECT_JS,
+	ARRAY_JS,
+	STRING_JS,
+	NUMBER_JS,
+	TRUE_JS,
+	FALSE_JS,
+	NUL_JS
 };
 
 enum sturctural_chars{

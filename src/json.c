@@ -33,7 +33,7 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 		case '{':
 		case '[':
 		{
-			tokens[tk_count].type = json[i] == '{' ? OBJECT : ARRAY;
+			tokens[tk_count].type = json[i] == '{' ? OBJECT_JS : ARRAY_JS;
 			tokens[tk_count].start = i;
 			tokens[tk_count].size = 0;
 			tokens[tk_count].parent = (depth > 0) ? stack[depth -1] : -1;
@@ -49,11 +49,11 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 		{ 
 			if(depth == 0) return JSON_INVALID_ERR;
 			depth--;
-			int expect = json[i] == '}' ? OBJECT : ARRAY;
+			int expect = json[i] == '}' ? OBJECT_JS : ARRAY_JS;
 			if(tokens[stack[depth]].type != expect) return JSON_INVALID_ERR;
 
 			tokens[stack[depth]].end = i + 1;
-			if(expect == OBJECT) tokens[stack[depth]].size /= 2;
+			if(expect == OBJECT_JS) tokens[stack[depth]].size /= 2;
 			i++;
 			break;
 		}
@@ -131,7 +131,7 @@ static int parse_string(const char  *json,size_t len,struct Json_token *t, size_
 		case '"':
 		{
 			t->end = (int)k;
-			t->type = STRING;
+			t->type = STRING_JS;
 			*i = k + 1;
 			return 0;
 		}
@@ -200,7 +200,7 @@ static int parse_number(const char  *json,size_t len,struct Json_token *t, size_
 		while(k < len && isdigit((unsigned char)json[k])) k++;
 	}
 
-	t->type = NUMBER;
+	t->type = NUMBER_JS;
 	t->end = (int)k;
 	*i = k;
 	return 0;
@@ -213,13 +213,13 @@ static int parse_literal(const char  *json,size_t len,struct Json_token *t, size
 
 	/*false, true, null*/
 	if(k + 4 <= len && strncmp(&json[k],"true",4) == 0){
-		t->type = TRUE;
+		t->type = TRUE_JS;
 		k += 4;
 	}else if( k + 4 <= len && strncmp(&json[k],"null",4) == 0){
-		t->type = NUL;
+		t->type = NUL_JS;
 		k += 4;
 	}else if(k + 5 <= len && strncmp(&json[k],"false",5) == 0){
-		t->type = FALSE;
+		t->type = FALSE_JS;
 		k += 5;
 	}else{
 		return JSON_INVALID_ERR;

@@ -165,7 +165,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 		}
 
 		if(tokens[0].size * 2 + 1 != token_nr) return 400; 
-		if(tokens[0].type != OBJECT) return 400;
+		if(tokens[0].type != OBJECT_JS) return 400;
 
 		switch(resource){
 		case N_ITEM:
@@ -179,7 +179,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				int ki = 1 + m * 2;
 				int vi = 2 + m * 2;
 				if(vi >= token_nr) return 400;
-				if(tokens[ki].type != STRING) return 400;
+				if(tokens[ki].type != STRING_JS) return 400;
 				int idx = key_allowed(allowed,preq,&tokens[ki]);
 				if(idx == -1) return 400; /*key not allowed*/
 				if(seen[idx]) return 400; /*duplicate key*/
@@ -199,7 +199,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			*buffer = (uint16_t)resource;
 			uint16_t *b = (uint16_t*)buffer;
 			buffer += 1;
-			strncpy((char*)buffer,preq,json_len);
+			memcpy((char*)buffer,preq,json_len);
 			if(write_actual_json_tokens_to_mem((char *)buffer + 1 + json_len,
 						size_buffer - sizeof(uint16_t) - json_len,
 						tokens,token_nr) == -1){
@@ -259,7 +259,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				int ki = 1 + m * 2;
 				int vi = 2 + m * 2;
 				if(vi >= token_nr) return 400;
-				if(tokens[ki].type != STRING) return 400;
+				if(tokens[ki].type != STRING_JS) return 400;
 				int idx = key_allowed(allowed,preq,&tokens[ki]);
 				if(idx == -1) return 400; /*key not allowed*/
 				if(seen[idx]) return 400; /*duplicate key*/
