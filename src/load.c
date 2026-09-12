@@ -34,16 +34,6 @@ int load_resource(char *rpath, struct Content *cont)
 
 	FILE *fp = fopen(file_path,"rb");
 	if(!fp){
-#ifdef OWN_DB
-		/*
-		 * TODO: if ir is not a file could be a DB endpoint
-		 * 	so, in this case we need to implement a mapping function
-		 * 	that maps the endpoints correctly, so we can write/read the info
-		 * 	requested by the application, from the db.
-		 *
-		 *
-		 * */
-#endif
 		strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
 		cont->size = strlen(NOT_FOUND) + 1;
 		fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
@@ -141,6 +131,9 @@ static const char *CUSTOMER_FILEDS[] = {
 	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id",NULL
 	};
 
+static const char *ITEM_FIELDS[] = {};
+static const char *NEW_ORD_FIELDS[] = {};
+
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 {
 	int resource = map_end_point(req->resource); 
@@ -149,35 +142,36 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	switch(req->method){
 	case POST:
 	{
-		switch(resource){
-		case N_ITEM:
-		case NEW_CUST:
-		{
-			/* parse json */
-			struct Json_token tokens[JSON_MAX_TOKENS] = {0};
-			size_t json_len = (size_t)req->req_body.size;
-			char *preq = NULL;
-			if(req->req_body.d_cont){
-				preq = req->req_body.d_cont;
-			}else{
-				preq = req->req_body.content;
-			}
+		/* parse json */
+		struct Json_token tokens[JSON_MAX_TOKENS] = {0};
+		size_t json_len = (size_t)req->req_body.size;
+		char *preq = NULL;
+		if(req->req_body.d_cont){
+			preq = req->req_body.d_cont;
+		}else{
+			preq = req->req_body.content;
+		}
 
-			int token_nr = json_parser((const char *)preq,json_len,tokens,JSON_MAX_TOKENS);
+		int token_nr = json_parser((const char *)preq,json_len,tokens,JSON_MAX_TOKENS);
 
-			switch(token_nr){
+		switch(token_nr){
 			case 0:
 			case JSON_INVALID_ERR:
 			case JSON_DEPTH_LIMIT_ERR:
 			case JSON_TK_LIMIT_ERR:
 				return 400;
 			default: break;
-			}
+		}
 
-			if(tokens[0].size * 2 + 1 != token_nr) return 400; 
-			if(tokens[0].type != OBJECT) return 400;
+		if(tokens[0].size * 2 + 1 != token_nr) return 400; 
+		if(tokens[0].type != OBJECT) return 400;
 
-			const char *allowed = (resource == NEW_CUST) ? CUSTOMER_FILEDS : ITEM_FIELDS;
+		switch(resource){
+		case N_ITEM:
+		case NEW_CUST:
+		{
+
+			char *allowed = (resource == NEW_CUST) ? CUSTOMER_FILEDS : ITEM_FIELDS;
 
 			/*check the keys*/
 			for(int m = 0; m < tokens[0].size; m++){
@@ -185,9 +179,9 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				int vi = 2 + m * 2;
 				if(vi >= token_nr) return 400;
 				if(tokens[ki].type != STRING) return 400;
-				if(!key_allowed(allowed,preq,&tokens[ki]) return 400;
+				if(!key_allowed(allowed,preq,&tokens[ki])) return 400;
 			}
-		
+
 			/*TODO: implement double key detection*/
 			/*DATA IS GOOD*/
 
@@ -204,8 +198,8 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			buffer += 1;
 			strncpy((char*)buffer,preq,json_len);
 			if(write_actual_json_tokens_to_mem((char *)buffer + sizeof(uint16_t) + json_len,
-									size_buffer - sizeof(uint16_t) - json_len,
-									tokens,token_nr) == -1){
+						size_buffer - sizeof(uint16_t) - json_len,
+						tokens,token_nr) == -1){
 				free(b);
 				return 500;
 			}
@@ -255,40 +249,25 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 		case NEW_SORD:
 		case UPDATE_SORD:
 		{
-			/*save the sales order in the db */
-			char *db = NULL;
-			if(req->req_body.d_cont)
-				db = convert_json(req->req_body.d_cont);
-			else
-				db = convert_json(req->req_body.content);
+			char *allowed = NEW_ORD_FIELDS ;
+			/*check the keys*/
+			for(int m = 0; m < tokens[0].size; m++){
+				int ki = 1 + m * 2;
+				int vi = 2 + m * 2;
+				if(vi >= token_nr) return 400;
+				if(tokens[ki].type != STRING) return 400;
+				if(!key_allowed(allowed,preq,&tokens[ki])) return 400;
+			}
 
-			assert(db != NULL);
+			/*TODO this will have to change*/
 
-			if(db[0] == '\0') return -1;
-
-			/*process the string and separate the two file sintax*/
-
-			char *lines_start = strstr(db,"sales_orders_lines");
-			if(!lines_start) return -1;
-
-
-			size_t lines_len = strlen((lines_start + strlen("sales_orders_lines:")));
-			char orders_line[lines_len+1];
-			memset(orders_line,0,lines_len+1);
-			strncpy(orders_line,lines_start + strlen("sales_orders_lines:"),lines_len);
-
-			char orders_head[((lines_start - db) - strlen("sales_orders_head:")) + 1];
-			memset(orders_head,0,((lines_start - db) -strlen("sales_orders_head:")) +1);
-			strncpy(orders_head,&db[strlen("sales_orders_head:")],((lines_start - db)-strlen("sales_orders_head:")));
-
-
-			size_t size_buffer = 0;
+#if 0
 			uint16_t *buffer = NULL;
 			if(resource == NEW_SORD){
-			/* 3 is 
-			 *  1 for '^'
-			 *  1 for '\0';
-			 * */
+				/* 3 is 
+				 *  1 for '^'
+				 *  1 for '\0';
+				 * */
 				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ sizeof(uint16_t) +2;
 				buffer = malloc(size_buffer);
 				if(!buffer){
@@ -310,11 +289,11 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				char *p = req->resource;
 				p += strlen(UPDATE_ORDERS) + 1;
 
-			/* 3 is 
-			 *   - 2 for '^'
-			 *   - 1 for '\0';
-			 * */
-				
+				/* 3 is 
+				 *   - 2 for '^'
+				 *   - 1 for '\0';
+				 * */
+
 				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ strlen(p)+ sizeof(uint16_t) +3;
 				buffer = malloc(size_buffer);
 				if(!buffer) return -1;
@@ -322,7 +301,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				memset(buffer,0,size_buffer);
 
 				*buffer = (uint16_t)resource;
-				
+
 				buffer += 1;
 				char *b = (char*)buffer;
 
@@ -351,7 +330,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			}
 
 			short int error = *(short int*)read_buffer;
-			
+
 			if(snprintf(cont->cnt_st,1024,"%s",&read_buffer[2]) == -1){
 				/*log error*/
 				free(b);
@@ -363,6 +342,8 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return 0;
 			else
 				return -1;
+#endif
+			break;
 		}
 		case S_ORD:
 		{
@@ -376,254 +357,254 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	case GET:
 	{
 		switch(resource){
-		case S_ORD_GET:
-		case ITEM_GET:
-		case S_ORD_CUSTOMER_GET:
-		case CUSTOMER_GET:
-		{
-
-			/*get the Key from the request*/
-			char *p = NULL;
-			switch(resource){
 			case S_ORD_GET:
-			{
-				p = req->resource;
-				p += strlen(SALES_ORDERS) + 1;
-				break;
-			}
 			case ITEM_GET:
-			{
-				p = req->resource;
-				p += strlen(ITEMS) + 1;
-				break;
-			}
-			case CUSTOMER_GET:
-			{
-				p = req->resource;
-				p += strlen(CUSTOMERS) + 1;
-				break;
-			}
 			case S_ORD_CUSTOMER_GET:
-			{
-				p = req->resource;
-				p += strlen(SALES_NEW_ORDER_CUSTOMERS) + 1;
-				break;
-			}
-			default:
-				return -1;
-			}
-			/*
-			 * check for URL encoding 
-			 * if the %20 is found, the function will 
-			 * change the string in place
-			 * */
-			check_URL_encoding(p);
+			case CUSTOMER_GET:
+				{
 
-			size_t key_size = strlen(p) +sizeof(uint16_t)+2;
-			char buffer[key_size];
-			memset(buffer,0,key_size);
+					/*get the Key from the request*/
+					char *p = NULL;
+					switch(resource){
+						case S_ORD_GET:
+							{
+								p = req->resource;
+								p += strlen(SALES_ORDERS) + 1;
+								break;
+							}
+						case ITEM_GET:
+							{
+								p = req->resource;
+								p += strlen(ITEMS) + 1;
+								break;
+							}
+						case CUSTOMER_GET:
+							{
+								p = req->resource;
+								p += strlen(CUSTOMERS) + 1;
+								break;
+							}
+						case S_ORD_CUSTOMER_GET:
+							{
+								p = req->resource;
+								p += strlen(SALES_NEW_ORDER_CUSTOMERS) + 1;
+								break;
+							}
+						default:
+							return -1;
+					}
+					/*
+					 * check for URL encoding 
+					 * if the %20 is found, the function will 
+					 * change the string in place
+					 * */
+					check_URL_encoding(p);
 
-			uint16_t *b = (uint16_t*)&buffer[0];
-			*b = (uint16_t) resource;
-			strncpy(&buffer[2],p,key_size - 2);
+					size_t key_size = strlen(p) +sizeof(uint16_t)+2;
+					char buffer[key_size];
+					memset(buffer,0,key_size);
 
-			if(write(data_sock,buffer,sizeof(buffer)) == -1){
-				return -1;
-			}
+					uint16_t *b = (uint16_t*)&buffer[0];
+					*b = (uint16_t) resource;
+					strncpy(&buffer[2],p,key_size - 2);
 
-			char *read_buffer = (char*)malloc(EIGHTkib_limit*4);
-			if(!read_buffer) return -1;
+					if(write(data_sock,buffer,sizeof(buffer)) == -1){
+						return -1;
+					}
 
-			/*read data from worker proc*/
+					char *read_buffer = (char*)malloc(EIGHTkib_limit*4);
+					if(!read_buffer) return -1;
 
-			memset(read_buffer,0,EIGHTkib_limit * 4);
-			ssize_t bread = 0;
-			if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){ 
-				free(read_buffer);
-				return -1;
-			}
+					/*read data from worker proc*/
 
-			if(bread == ((EIGHTkib_limit * 4) - 1)){
-				free(read_buffer);
-				fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
-				return -1;
-			}
+					memset(read_buffer,0,EIGHTkib_limit * 4);
+					ssize_t bread = 0;
+					if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){ 
+						free(read_buffer);
+						return -1;
+					}
 
-			if(read_buffer[0] == '\0'){
-				free(read_buffer);
-				return -1;
-			}
+					if(bread == ((EIGHTkib_limit * 4) - 1)){
+						free(read_buffer);
+						fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
+						return -1;
+					}
 
-			size_t mem_size = strlen(read_buffer) + 1;
-			cont->cnt_dy = (char*) malloc(mem_size);
-			if(!cont->cnt_dy) {
-				free(read_buffer);
-				return -1;
-			}
+					if(read_buffer[0] == '\0'){
+						free(read_buffer);
+						return -1;
+					}
 
-			cont->size = mem_size - 1;
-			if(snprintf(cont->cnt_dy,mem_size,"%s",read_buffer) == -1) {
-				free(read_buffer);
-				return -1;
-			}
-			free(read_buffer);
-			return 0;
-		}
-		case RPT:
-		{
-			char *p = req->resource; 
-			p += strlen(REPORTS) + 1;
+					size_t mem_size = strlen(read_buffer) + 1;
+					cont->cnt_dy = (char*) malloc(mem_size);
+					if(!cont->cnt_dy) {
+						free(read_buffer);
+						return -1;
+					}
 
-			int size = (int)(strlen(p) + sizeof(uint16_t));
-			char buffer[size+1];
-			memset(buffer,0,size+1);
-
-			uint16_t *b = (uint16_t*)&buffer[0];
-			*b = (uint16_t) resource;
-
-			strncpy(&buffer[2],p,size - sizeof(uint16_t));
-
-			if(write(data_sock,buffer,sizeof(buffer)) == -1){
-				return -1;
-			}
-
-			/* 
-			 * THIS MINI PROTOCOL is IMPLEMENTED ONLY HERE
-			 * BECAUSE IS THE ONLY PATH THAT NEEDED THIS IMPLEMENTAION
-			 * SO FAR
-			 * */
-			uint32_t size_rb = 0;
-			if(read(data_sock,&size_rb,sizeof(uint32_t)) == -1){
-				return -1;
-			}
-			
-			
-			char *read_buffer = (char*)malloc(size_rb+1);
-			if(!read_buffer){
-				char not_ok = '\000';
-				if(write(data_sock,&not_ok,1) == -1){
-					return -1;
-				}
-				return -1;
-			}
-
-			memset(read_buffer,0,size_rb+1);
-			
-			/*write to work process: I'M READY TO READ*/
-			char ok = '\001';
-			if(write(data_sock,&ok,1) == -1){
-				free(read_buffer);
-				char not_ok = '\000';
-				if(write(data_sock,&not_ok,1) == -1){
-					return -1;
-				}
-				return -1;
-			}
-
-			/*read data from worker proc*/
-			ssize_t bread = 0, res = 0;
-			while(bread < size_rb){
-				res = read(data_sock,&read_buffer[bread],size_rb);
-				if(res == -1){
+					cont->size = mem_size - 1;
+					if(snprintf(cont->cnt_dy,mem_size,"%s",read_buffer) == -1) {
+						free(read_buffer);
+						return -1;
+					}
 					free(read_buffer);
-					return -1;
+					return 0;
 				}
-				bread += res;
-			}
+			case RPT:
+				{
+					char *p = req->resource; 
+					p += strlen(REPORTS) + 1;
 
-			if(read_buffer[0] == '\0'){
-				free(read_buffer);
-				return -1;
-			}
+					int size = (int)(strlen(p) + sizeof(uint16_t));
+					char buffer[size+1];
+					memset(buffer,0,size+1);
 
-			cont->cnt_dy = (char*) malloc(size_rb + 1);
-			if(!cont->cnt_dy) {
-				free(read_buffer);
-				return -1;
-			}
+					uint16_t *b = (uint16_t*)&buffer[0];
+					*b = (uint16_t) resource;
 
-			cont->size = size_rb;
-			if(snprintf(cont->cnt_dy,size_rb+1,"%s",read_buffer) == -1) {
-				free(read_buffer);
-				return -1;
-			}
-			free(read_buffer);
-			return 0;
-		}
-		case ITEM_GET_ALL:
-		case CUSTOMER_GET_ALL:
-		case S_ORD:
-		{		
-			/*send data to the worker process*/
-			char buffer[3];
-			memset(buffer,0,3);
-			uint16_t *b = (uint16_t*)&buffer[0];
-			switch(resource){
-			case S_ORD:
-				*b = (uint16_t)S_ORD;
-				break;
-			case CUSTOMER_GET_ALL:
-				*b = (uint16_t)CUSTOMER_GET_ALL;
-				break;
+					strncpy(&buffer[2],p,size - sizeof(uint16_t));
+
+					if(write(data_sock,buffer,sizeof(buffer)) == -1){
+						return -1;
+					}
+
+					/* 
+					 * THIS MINI PROTOCOL is IMPLEMENTED ONLY HERE
+					 * BECAUSE IS THE ONLY PATH THAT NEEDED THIS IMPLEMENTAION
+					 * SO FAR
+					 * */
+					uint32_t size_rb = 0;
+					if(read(data_sock,&size_rb,sizeof(uint32_t)) == -1){
+						return -1;
+					}
+
+
+					char *read_buffer = (char*)malloc(size_rb+1);
+					if(!read_buffer){
+						char not_ok = '\000';
+						if(write(data_sock,&not_ok,1) == -1){
+							return -1;
+						}
+						return -1;
+					}
+
+					memset(read_buffer,0,size_rb+1);
+
+					/*write to work process: I'M READY TO READ*/
+					char ok = '\001';
+					if(write(data_sock,&ok,1) == -1){
+						free(read_buffer);
+						char not_ok = '\000';
+						if(write(data_sock,&not_ok,1) == -1){
+							return -1;
+						}
+						return -1;
+					}
+
+					/*read data from worker proc*/
+					ssize_t bread = 0, res = 0;
+					while(bread < size_rb){
+						res = read(data_sock,&read_buffer[bread],size_rb);
+						if(res == -1){
+							free(read_buffer);
+							return -1;
+						}
+						bread += res;
+					}
+
+					if(read_buffer[0] == '\0'){
+						free(read_buffer);
+						return -1;
+					}
+
+					cont->cnt_dy = (char*) malloc(size_rb + 1);
+					if(!cont->cnt_dy) {
+						free(read_buffer);
+						return -1;
+					}
+
+					cont->size = size_rb;
+					if(snprintf(cont->cnt_dy,size_rb+1,"%s",read_buffer) == -1) {
+						free(read_buffer);
+						return -1;
+					}
+					free(read_buffer);
+					return 0;
+				}
 			case ITEM_GET_ALL:
-				*b = (uint16_t)ITEM_GET_ALL;
-				break;
+			case CUSTOMER_GET_ALL:
+			case S_ORD:
+				{		
+					/*send data to the worker process*/
+					char buffer[3];
+					memset(buffer,0,3);
+					uint16_t *b = (uint16_t*)&buffer[0];
+					switch(resource){
+						case S_ORD:
+							*b = (uint16_t)S_ORD;
+							break;
+						case CUSTOMER_GET_ALL:
+							*b = (uint16_t)CUSTOMER_GET_ALL;
+							break;
+						case ITEM_GET_ALL:
+							*b = (uint16_t)ITEM_GET_ALL;
+							break;
+						default:
+							return -1;
+					}
+
+					if(write(data_sock,buffer,sizeof(buffer)) == -1){
+						return -1;
+					}
+
+					char *read_buffer = (char*)malloc(EIGHTkib_limit * 4);
+					if(!read_buffer) return -1;
+
+					/*read data from worker proc*/
+
+					memset(read_buffer,0,EIGHTkib_limit * 4);
+					ssize_t bread = 0;
+					if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){
+						free(read_buffer);
+						return -1;
+					}
+
+					if(bread == ((EIGHTkib_limit * 4) - 1)){
+						free(read_buffer);
+						fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
+						return -1;
+					}
+
+					if(read_buffer[0] == '\0'){ 
+						free(read_buffer);
+						return -1;
+					}
+
+					size_t mem_size = strlen(read_buffer) + 1;
+					cont->cnt_dy = (char*) malloc(mem_size);
+					if(!cont->cnt_dy) {
+						free(read_buffer);
+						return -1;
+					}
+
+					cont->size = mem_size - 1;
+					if(snprintf(cont->cnt_dy,strlen(read_buffer)+1,"%s",read_buffer) == -1) {
+						free(cont->cnt_dy);
+						free(read_buffer);
+						cont->cnt_dy = NULL;
+						return -1;
+					}
+
+					free(read_buffer);
+					return 0;
+				}
 			default:
-				return -1;
-			}
-
-			if(write(data_sock,buffer,sizeof(buffer)) == -1){
-				return -1;
-			}
-
-			char *read_buffer = (char*)malloc(EIGHTkib_limit * 4);
-			if(!read_buffer) return -1;
-
-			/*read data from worker proc*/
-
-			memset(read_buffer,0,EIGHTkib_limit * 4);
-			ssize_t bread = 0;
-			if((bread = read(data_sock,read_buffer,(EIGHTkib_limit * 4)-1)) == -1){
-				free(read_buffer);
-				return -1;
-			}
-			
-			if(bread == ((EIGHTkib_limit * 4) - 1)){
-				free(read_buffer);
-				fprintf(stderr,"code refactor neened %s:%d\n",__FILE__,__LINE__-1);
-				return -1;
-			}
-
-			if(read_buffer[0] == '\0'){ 
-				free(read_buffer);
-				return -1;
-			}
-
-			size_t mem_size = strlen(read_buffer) + 1;
-			cont->cnt_dy = (char*) malloc(mem_size);
-			if(!cont->cnt_dy) {
-				free(read_buffer);
-				return -1;
-			}
-
-			cont->size = mem_size - 1;
-			if(snprintf(cont->cnt_dy,strlen(read_buffer)+1,"%s",read_buffer) == -1) {
-				free(cont->cnt_dy);
-				free(read_buffer);
-				cont->cnt_dy = NULL;
-				return -1;
-			}
-
-			free(read_buffer);
-			return 0;
-		}
-		default:
-		break;
+				break;
 		}
 		break;
-		}
-		default:
-		break;	
+	}
+	default:
+	break;	
 	}
 	return 0;
 }	
@@ -633,8 +614,8 @@ static int key_allowed(char *wlist,const char* json, struct Json_token *k)
 
 	int k_len = k->end - k->start;
 	for(int i = 0; wlist[i];i++){
-		if((int)strlen(wlist[i]) == k_len 
-				&& memcmp(wlist[i],&json[k->start],k_len) == 0) return 1
+		if((int)strlen(&wlist[i]) == k_len 
+				&& memcmp(&wlist[i],&json[k->start],k_len) == 0) return 1;
 	}
 
 	return 0;
@@ -658,7 +639,7 @@ static int check_URL_encoding(char *p)
 		space += 2;
 		s = space;
 	}
-	
+
 	if(!copied)
 		return 0;
 
