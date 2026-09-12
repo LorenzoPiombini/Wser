@@ -188,7 +188,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 
 			/*DATA IS GOOD*/
 
-			size_t size_buffer = sizeof(uint16_t) + json_len + token_nr* sizeof(struct Json_token);
+			size_t size_buffer = sizeof(uint16_t) + json_len + 1 + token_nr* sizeof(struct Json_token);
 			uint16_t *buffer = malloc(size_buffer);
 			if(!buffer){
 				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
@@ -200,7 +200,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			uint16_t *b = (uint16_t*)buffer;
 			buffer += 1;
 			strncpy((char*)buffer,preq,json_len);
-			if(write_actual_json_tokens_to_mem((char *)buffer + sizeof(uint16_t) + json_len,
+			if(write_actual_json_tokens_to_mem((char *)buffer + 1 + json_len,
 						size_buffer - sizeof(uint16_t) - json_len,
 						tokens,token_nr) == -1){
 				free(b);
