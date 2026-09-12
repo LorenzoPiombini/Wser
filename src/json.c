@@ -101,7 +101,7 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 int write_actual_json_tokens_to_mem(char *buf,size_t buf_size, struct Json_token *t,size_t token_size)
 {
 	if((sizeof *t * token_size) > buf_size) return -1;
-	memcpy(buf,t,sizeof *t * token_size);	
+	memcpy((struct Json_token*)buf,t,sizeof *t * token_size);	
 	return 0;
 }
 
