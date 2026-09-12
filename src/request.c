@@ -34,36 +34,25 @@ int handle_request(struct Request *req)
 		if((req->size - h_end) == 0) 
 			return BDY_MISS;
 
-		if((req->size - h_end) < STD_REQ_BDY_CNT){
-			
-			if(((req->size - h_end) - 1) <= 0) 
-				return BAD_REQ;
-
-			if(req->d_req)
-				strncpy(req->req_body.content,&req->d_req[h_end],(req->size - h_end)-1);
-			else
-				strncpy(req->req_body.content,&req->req[h_end],(req->size - h_end)-1);
-
-			return 0;
-		}else{
+		if((req->size - h_end) >= STD_REQ_BDY_CNT){
 			req->req_body.d_cont = (char *)calloc(req->size - h_end,sizeof(char));
 			if(!req->req_body.d_cont){
 				fprintf(stderr,"(%s): calloc failed, %s:%d\n",
 						prog,__FILE__,__LINE__-2);
 				return BAD_REQ;
 			}
-
-			if(((req->size - h_end) - 1) <= 0)
-				return BAD_REQ;
-
-			if(req->d_req)
-				strncpy(req->req_body.d_cont, &req->d_req[h_end],(req->size -h_end) - 1);
-			else
-				strncpy(req->req_body.d_cont, &req->req[h_end],(req->size -h_end) - 1);
-
-			req->req_body.size = req->size - h_end;
-			return 0;
 		}
+
+		if(((req->size - h_end) - 1) <= 0) return BAD_REQ;
+
+		if(req->d_req){
+			req->req_body.size = req->size - h_end;
+			strncpy(req->req_body.content,&req->d_req[h_end],req->req_body.size);
+		}else{
+			req->req_body.size = req->size - h_end;
+			strncpy(req->req_body.content,&req->req[h_end],req->req_body.size);
+		}
+		return 0;
 	}
 	return 0;
 }
