@@ -53,6 +53,7 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 			if(tokens[stack[depth]].type != expect) return JSON_INVALID_ERR;
 
 			tokens[stack[depth]].end = i + 1;
+			if(expect == OBJECT) tokens[stack[depth]].size /= 2;
 			i++;
 			break;
 		}
