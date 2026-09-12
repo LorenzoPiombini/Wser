@@ -935,28 +935,9 @@ static int process_request(struct Request *req, int cli_sock)
 		struct Content cont = {0};
 
 		fprintf(stderr,"POST branch resource is %s\n",req->resource);		
-		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
-			if(cont.cnt_st[0] != '\0'){
-				if(generate_response(&res,404,&cont,req) == -1) break;
-			}else{
-				if(generate_response(&res,404,NULL,req) == -1) break;
-			}
-
-
-			int w = 0;
-			if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
-			if(w == SSL_WRITE_E){
-				clear_response(&res);
-				clear_content(&cont);
-				return 1;
-			}
-			clear_response(&res);
-			clear_content(&cont);
-			return 0;
-		}
-
-		/*send 200 response*/
-		if(generate_response(&res,OK,&cont,req) == -1) {
+		int load_code = load_resource_db(req,&cont,work_proc_data_sock);
+		
+		if(generate_response(&res,load_code,&cont,req) == -1) {
 			clear_content(&cont);
 			clear_response(&res);
 			return 0;
