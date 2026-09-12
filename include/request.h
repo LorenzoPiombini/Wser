@@ -7,6 +7,7 @@
 #define BAD_REQ 400
 #define BDY_MISS 600
 #define OK 200 
+#define OK_CREATE 201 
 #define STD_LT_RESOURCE 550
 #define DEFAULT "HTTP/1.1"
 #define HTTP2 "HTTP/2"

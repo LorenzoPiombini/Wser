@@ -14,6 +14,7 @@ static int not_found_header(char *header, struct Request *req, struct Response *
 static int bad_request_header(char *header);
 static int moved_permanently_header(char *header,struct Request *r);
 static int options_response_header(char *header,int status);
+static int server_error_header(char *header);
 static char *month_parser(int month);
 static char *day_parser(int day);
 static char *second_parser(int second);
@@ -52,6 +53,8 @@ static char *create_response_message(struct Response *res, int status, struct Co
 	case 301:
 		if(moved_permanently_header(h,req) == -1) return NULL;
 		return h;
+	case 500:
+		if(server_error_header(h) == -1) return NULL;
 	default:
 		break;
 	}
@@ -405,6 +408,17 @@ static int bad_request_header(char *header)
 				"Content-lenght: %ld\r\n\r\n%s","HTTP/1.1", 400, "Bad request",
 				"application/json",strlen(BAD_REQ_MES),BAD_REQ_MES) == -1){
 		fprintf(stderr,"(%s): cannot form BAD RESPONSE.",prog);
+		return -1;
+	}
+	return 0;
+}
+
+static int server_error_header(char *header){
+	if(snprintf(header,1024,"%s %d %s\r\n"\
+				"Content-Type: %s\r\n"\
+				"Content-lenght: %ld\r\n\r\n%s","HTTP/1.1", 500, "Internal Server Error",
+				"application/json",strlen(SERVER_ER_MES),SERVER_ER_MES) == -1){
+		fprintf(stderr,"(%s): cannot form 500 RESPONSE.",prog);
 		return -1;
 	}
 	return 0;

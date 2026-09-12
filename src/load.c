@@ -186,7 +186,6 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				seen[idx]++;
 			}
 
-			/*TODO: implement double key detection*/
 			/*DATA IS GOOD*/
 
 			size_t size_buffer = sizeof(uint16_t) + json_len + token_nr* sizeof(struct Json_token);

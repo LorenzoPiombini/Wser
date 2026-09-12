@@ -12,7 +12,7 @@
 #define STD_HD_L 1024
 #define SECONDS_IN_A_DAY 60*24
 #define BAD_REQ_MES "{\"error\": \"Bad request\",\"message\": \"Request body could not be read properly.\"}"
-#define SERVER_ER_MES "{\"error\": \"Server internal error\",\"message\": \"could not fork() from parent.\"}"
+#define SERVER_ER_MES "{\"error\": \"Server internal error\",\"message\": \"contact assistance@artech.com .\"}"
 #define ALLOWED_METHODS "GET, POST, OPTIONS"
 
 #define OPTIONS_RESPONSE 		3855 	/*00001111 00001111*/
@@ -22,7 +22,7 @@
 #define OK_GET_RESPONSE_BODY		32791 	/*10000000 00010111*/
 #define OK_POST_RESPONSE	 	103 	/*00000000 01100111*/
 #define OK_CREATED_POST_RESPONSE 	55 	/*00000000 00110111*/
-#define SERVER_ERROR 			32768 	/*10000000 00000000*/
+#define SERVER_ERROR 			32768 	/*1000 0000 0000 0000*/
 
 struct Header{
 	uint16_t status;
