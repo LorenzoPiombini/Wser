@@ -676,7 +676,7 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 		*bwritten += sizeof(uint16_t);
 		if(*bwritten > buf_size) return -1;
 
-		memcpy(&bwritten[*bwritten],&json[token->start],len);
+		memcpy(&buffer[*bwritten],&json[token->start],len);
 		*bwritten += len;
 		
 		token = t + v;
@@ -686,7 +686,7 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 		*bwritten += sizeof(uint16_t);
 		if(*bwritten > buf_size) return -1;
 
-		memcpy(&bwritten[*bwritten],&json[token->start],len);
+		memcpy(&buffer[*bwritten],&json[token->start],len);
 		*bwritten += len;
 		if(*bwritten > buf_size) return -1;
 	}
