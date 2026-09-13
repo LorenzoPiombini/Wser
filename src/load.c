@@ -21,6 +21,7 @@ static int check_URL_encoding(char *p);
 #include <assert.h>
 const int EIGHTkib_limit = 1024 * 8;
 static int key_allowed(char **wlist,const char* json, struct Json_token *k);
+static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten);
 #endif
 
 int load_resource(char *rpath, struct Content *cont)
@@ -174,41 +175,43 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			char **allowed = (resource == NEW_CUST) ? (char**)CUSTOMER_FILEDS : (char**)ITEM_FIELDS;
 
 			/*check the keys*/
+			int need_mem = 0;
 			int seen[MAX_KEY_ALLOWED] = {0};
 			for(int m = 0; m < tokens[0].size; m++){
 				int ki = 1 + m * 2;
 				int vi = 2 + m * 2;
+
 				if(vi >= token_nr) return 400;
 				if(tokens[ki].type != STRING_JS) return 400;
 				int idx = key_allowed(allowed,preq,&tokens[ki]);
 				if(idx == -1) return 400; /*key not allowed*/
 				if(seen[idx]) return 400; /*duplicate key*/
 				seen[idx]++;
+
+				need_mem += (tokens[ki].end - tokens[ki].start) + sizeof(uint8_t) + sizeof(uint16_t);
+				need_mem += (tokens[vi].end - tokens[vi].start) + sizeof(uint8_t) + sizeof(uint16_t);
 			}
 
 			/*DATA IS GOOD*/
 
-			size_t size_buffer = sizeof(uint16_t) + json_len + 1 + token_nr* sizeof(struct Json_token);
-			uint16_t *buffer = malloc(size_buffer);
-			if(!buffer){
+			size_t size_buffer = (sizeof(uint16_t) * 2) + need_mem;
+			uint16_t *b = malloc(size_buffer);
+			if(!b){
 				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
 				return -1;
 			}
-			memset(buffer,0,size_buffer);
+			memset(b,0,size_buffer);
 
-			*buffer = (uint16_t)resource;
-			uint16_t *b = (uint16_t*)buffer;
-			buffer += 1;
-			memcpy((char*)buffer,preq,json_len);
-			if(write_actual_json_tokens_to_mem((char *)buffer + 1 + json_len,
-						size_buffer - sizeof(uint16_t) - json_len,
-						tokens,token_nr) == -1){
+			size_t bwritten = 0;
+			*b = (uint16_t)resource;
+			bwritten += sizeof(uint16_t);
+			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten)){
 				free(b);
 				return 500;
 			}
 
 			/*send data to the worker process*/
-			if(write(data_sock,b,size_buffer - 1) == -1){ 
+			if(write(data_sock,b,size_buffer) == -1){ 
 				free(b);
 				return 500;
 			}
@@ -654,6 +657,38 @@ static int check_URL_encoding(char *p)
 	return 0;
 }
 
+static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten)
+{
+	memcpy(&buffer[*bwritten], (uint16_t*)&t->size,sizeof(uint16_t));
+	*bwritten += sizeof(uint16_t);
+	if(*bwritten > buf_size) return -1;
+	for(int m = 0; m < t->size; m++){
+		int k = 1 + m * 2;
+		int v = 2 + m * 2;
 
+		struct Json_token *token = t + k;
+		memcpy(&buffer[*bwritten],(uint8_t*)&token->type,sizeof(uint16_t));
+		*bwritten += sizeof(uint8_t);
+		if(*bwritten > buf_size) return -1;
 
+		int len = token->end - token->start;
+		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
+		*bwritten += sizeof(uint16_t);
+		if(*bwritten > buf_size) return -1;
 
+		memcpy(&bwritten[*bwritten],&json[token->start],len);
+		*bwritten += len;
+		
+		token = t + v;
+
+		len = token->end - token->start;
+		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
+		*bwritten += sizeof(uint16_t);
+		if(*bwritten > buf_size) return -1;
+
+		memcpy(&bwritten[*bwritten],&json[token->start],len);
+		*bwritten += len;
+		if(*bwritten > buf_size) return -1;
+	}
+	return 0;
+}
