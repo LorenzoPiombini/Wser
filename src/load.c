@@ -194,7 +194,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 
 			/*DATA IS GOOD*/
 
-			size_t size_buffer = (sizeof(uint16_t) * 2) + need_mem;
+			size_t size_buffer = sizeof(uint64_t) + (sizeof(uint16_t) * 2) + need_mem;
 			uint16_t *b = malloc(size_buffer);
 			if(!b){
 				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
@@ -205,6 +205,9 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			size_t bwritten = 0;
 			*b = (uint16_t)resource;
 			bwritten += sizeof(uint16_t);
+			memcpy(&b[bwritten],size_buffer,sizeof(uint64_t));
+			bwritten += sizeof(uint64_t);
+
 			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten)){
 				free(b);
 				return 500;
