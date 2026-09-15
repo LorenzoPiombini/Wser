@@ -405,10 +405,9 @@ static int bad_request_header(char *header,struct Content *cont)
 {
 	if(snprintf(header,1024,"%s %d %s\r\n"\
 				"Content-Type: %s\r\n"\
-				"Content-lenght: %ld\r\n\r\n%s","HTTP/1.1", 400, "Bad request",
+				"Content-lenght: %ld\r\n\r\n","HTTP/1.1", 400, "Bad request",
 				"application/json",
-				cont == NULL ? strlen(BAD_REQ_MES) : cont->size,
-				cont == NULL ? BAD_REQ_MES : cont->cnt_st) == -1){
+				cont == NULL ? strlen(BAD_REQ_MES) : cont->size) == -1){
 		fprintf(stderr,"(%s): cannot form BAD RESPONSE.",prog);
 		return -1;
 	}
