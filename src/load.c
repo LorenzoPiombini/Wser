@@ -205,7 +205,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			size_t bwritten = 0;
 			*b = (uint16_t)resource;
 			bwritten += sizeof(uint16_t);
-			memcpy(&b[bwritten],size_buffer,sizeof(uint64_t));
+			memcpy(&b[bwritten],&size_buffer,sizeof(uint64_t));
 			bwritten += sizeof(uint64_t);
 
 			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten)){
