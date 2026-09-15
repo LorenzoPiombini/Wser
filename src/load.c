@@ -133,7 +133,9 @@ static const char *CUSTOMER_FILEDS[] = {
 	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id",NULL
 	};
 
-static const char *ITEM_FIELDS[] = {};
+static const char *ITEM_FIELDS[] = {
+	"name","uom","price_level_id","unit_price", "recipe_id", NULL
+};
 static const char *NEW_ORD_FIELDS[] = {};
 
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
