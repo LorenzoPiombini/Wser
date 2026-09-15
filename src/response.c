@@ -11,7 +11,7 @@ static void set_status_and_phrase(struct Header *headers, uint16_t status);
 static char *create_response_message(struct Response *res, int status, struct Content *cont, struct Request *req);
 static int parse_body(struct Content *cont, struct Response *res);
 static int not_found_header(char *header, struct Request *req, struct Response *res, struct Content *cont);
-static int bad_request_header(char *header);
+static int bad_request_header(char *header,struct Content *cont);
 static int moved_permanently_header(char *header,struct Request *r);
 static int options_response_header(char *header,int status);
 static int server_error_header(char *header);
@@ -48,7 +48,7 @@ static char *create_response_message(struct Response *res, int status, struct Co
 		if(not_found_header(h,req,res,cont != NULL ? cont : NULL) == -1) return NULL;
 		return h;
 	case 400:
-		if(bad_request_header(h) == -1) return NULL;
+		if(bad_request_header(h,cont) == -1) return NULL;
 		return h;
 	case 301:
 		if(moved_permanently_header(h,req) == -1) return NULL;
@@ -401,12 +401,14 @@ static int not_found_header(char *header, struct Request *req, struct Response *
 	return 0;
 }
 
-static int bad_request_header(char *header)
+static int bad_request_header(char *header,struct Content *cont)
 {
 	if(snprintf(header,1024,"%s %d %s\r\n"\
 				"Content-Type: %s\r\n"\
 				"Content-lenght: %ld\r\n\r\n%s","HTTP/1.1", 400, "Bad request",
-				"application/json",strlen(BAD_REQ_MES),BAD_REQ_MES) == -1){
+				"application/json",
+				cont == NULL ? strlen(BAD_REQ_MES) : cont->size,
+				cont == NULL ? BAD_REQ_MES : cont->cnt_st) == -1){
 		fprintf(stderr,"(%s): cannot form BAD RESPONSE.",prog);
 		return -1;
 	}
