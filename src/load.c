@@ -233,7 +233,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return 500;
 			}
 
-			if(read_res < 2){
+			if(read_res < 2 || read_res == MAX_CONT_SZ){
 				free(b);
 				return 500;
 			}
@@ -241,7 +241,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			short int error = *(short int*)read_buffer;
 			int pay_load = read_res -2;
 			if(read_res < 1023){
-				memcpy(cont->cnt_st,&read_buffer[2],pay_load);
+				memcpy(cont->cnt_st,&read_buffer[2],strlen(&read_buffer[2]));
 			}else{
 				/*Maybe allocate memory*/
 				fprintf(stderr,"code refactor needed, %s:%d.\n",__FILE__,__LINE__);
@@ -249,8 +249,8 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return 500;
 			}
 
-			cont->cnt_st[pay_load] = '\0';
-			cont->size = pay_load;
+			/*cont is already Zeroed, there is no need to */
+			cont->size = strlen(cont->cnt_st);
 			free(b);
 			if(error == 0)
 				return 201;
