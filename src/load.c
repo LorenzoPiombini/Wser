@@ -671,11 +671,12 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 		int k = 1 + m * 2;
 		int v = 2 + m * 2;
 
-		struct Json_token *token = t + k;
+		struct Json_token *token = t + v;
 		memcpy(&buffer[*bwritten],(uint8_t*)&token->type,sizeof(uint16_t));
 		*bwritten += sizeof(uint8_t);
 		if(*bwritten > buf_size) return -1;
 
+		token = t + k;
 		int len = token->end - token->start;
 		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
 		*bwritten += sizeof(uint16_t);
