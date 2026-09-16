@@ -22,6 +22,7 @@ static int check_URL_encoding(char *p);
 const int EIGHTkib_limit = 1024 * 8;
 static int key_allowed(char **wlist,const char* json, struct Json_token *k);
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten);
+static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
 
 int load_resource(char *rpath, struct Content *cont)
@@ -136,7 +137,9 @@ static const char *CUSTOMER_FILEDS[] = {
 static const char *ITEM_FIELDS[] = {
 	"name","uom","price_level_id","unit_price", "recipe_id", NULL
 };
-static const char *NEW_ORD_FIELDS[] = {};
+static const char *NEW_ORD_FIELDS[] = {
+	"sales_orders_head","date","customer_id","lines_nr","sales_orders_lines","item_id","qty","request_date",NULL
+};
 
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 {
@@ -167,13 +170,13 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			default: break;
 		}
 
-		if(tokens[0].size * 2 + 1 != token_nr) return 400; 
 		if(tokens[0].type != OBJECT_JS) return 400;
 
 		switch(resource){
 		case N_ITEM:
 		case NEW_CUST:
 		{
+			if(tokens[0].size * 2 + 1 != token_nr) return 400; 
 			char **allowed = (resource == NEW_CUST) ? (char**)CUSTOMER_FILEDS : (char**)ITEM_FIELDS;
 
 			/*check the keys*/
@@ -239,7 +242,6 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			}
 
 			short int error = *(short int*)read_buffer;
-			int pay_load = read_res -2;
 			if(read_res < 1023){
 				memcpy(cont->cnt_st,&read_buffer[2],strlen(&read_buffer[2]));
 			}else{
@@ -260,105 +262,89 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 		case NEW_SORD:
 		case UPDATE_SORD:
 		{
+			if(tokens[0].size * 2 + 1 > token_nr) return 400; 
 			char **allowed = (char**)NEW_ORD_FIELDS ;
 			/*check the keys*/
+			int need_mem = 0;
 			int seen[MAX_KEY_ALLOWED] = {0};
-			for(int m = 0; m < tokens[0].size; m++){
-				int ki = 1 + m * 2;
-				int vi = 2 + m * 2;
-				if(vi >= token_nr) return 400;
-				if(tokens[ki].type != STRING_JS) return 400;
-				int idx = key_allowed(allowed,preq,&tokens[ki]);
-				if(idx == -1) return 400; /*key not allowed*/
-				if(seen[idx]) return 400; /*duplicate key*/
-				seen[idx]++;
-			}
-
-			/*TODO this will have to change*/
-
-#if 0
-			uint16_t *buffer = NULL;
-			if(resource == NEW_SORD){
-				/* 3 is 
-				 *  1 for '^'
-				 *  1 for '\0';
-				 * */
-				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ sizeof(uint16_t) +2;
-				buffer = malloc(size_buffer);
-				if(!buffer){
-					fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__-2);
-					return -1;
+			for(int m = 0; m < token_nr; m++){
+				if(tokens[m].type == STRING_JS){
+					int idx = key_allowed(allowed,preq,&tokens[m]);
+					if(idx == -1) return 400; /*key not allowed*/
+					if(seen[idx]) return 400; /*duplicate key*/
+					seen[idx]++;
+					need_mem += (tokens[m].end - tokens[m].start) + sizeof(uint8_t) + sizeof(uint16_t);
 				}
 
-				memset(buffer,0,size_buffer);
-
-				/*parse data to buffer*/
-				*buffer = (uint16_t)resource;
-				buffer += 1;
-				char *p = (char*)buffer;
-				strncpy(p,orders_head,strlen(orders_head));
-				strncpy(&p[strlen(orders_head)],"^",2);
-				strncpy(&p[strlen(orders_head)+1],orders_line,strlen(orders_line));
-			}else{
-				/*parse a buffer for the update operation*/
-				char *p = req->resource;
-				p += strlen(UPDATE_ORDERS) + 1;
-
-				/* 3 is 
-				 *   - 2 for '^'
-				 *   - 1 for '\0';
-				 * */
-
-				size_buffer = sizeof(orders_head) + sizeof(orders_line)+ strlen(p)+ sizeof(uint16_t) +3;
-				buffer = malloc(size_buffer);
-				if(!buffer) return -1;
-
-				memset(buffer,0,size_buffer);
-
-				*buffer = (uint16_t)resource;
-
-				buffer += 1;
-				char *b = (char*)buffer;
-
-				strncpy(b,p,strlen(p));
-				int position = strlen(p);
-				strncpy(&b[position],"^",2);
-				position += 1;
-				strncpy(&b[position],orders_head,strlen(orders_head));
-				position += strlen(orders_head);
-				strncpy(&b[position],"^",2);
-				position += 1;
-				strncpy(&b[position],orders_line,strlen(orders_line));
+				if(tokens[m+1].type == OBJECT_JS){
+					int r = 0;
+					if((r = check_key_in_object(allowed,preq,&tokens[m+1],&m,seen)) == -1) return -1;
+					need_mem += r;
+				}
 			}
 
-			uint16_t *b = (uint16_t*)buffer - 1;
+			/*DATA IS GOOD*/
+
+			size_t size_buffer = sizeof(uint64_t) + (sizeof(uint16_t) * 2) + need_mem;
+			uint16_t *b = malloc(size_buffer);
+			if(!b){
+				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
+				return -1;
+			}
+
+			size_t bwritten = 0;
+			memcpy(&b[bwritten],&resource,sizeof(uint16_t));
+			bwritten += sizeof(uint16_t);
+
+			memcpy(&b[bwritten],&size_buffer,sizeof(uint64_t));
+			bwritten += sizeof(uint64_t);
+
+			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten)){
+				free(b);
+				return 500;
+			}
+
 			/*send data to the worker process*/
-			if(write(data_sock,b,size_buffer) == -1){
+			if(write(data_sock,b,size_buffer) == -1){ 
 				free(b);
-				return -1;
+				return 500;
 			}
 
-			char read_buffer[MAX_CONT_SZ];
-			if(read(data_sock,read_buffer,MAX_CONT_SZ) == -1){ 
+			/*TODO: refactor the socket comunication so that you read once with 
+			 * the size of the next message then you allocate a buffer accordangly so 
+			 * you can be eficient
+			 *
+			 * */
+			char read_buffer[MAX_CONT_SZ] = {0};
+			int read_res = 0;
+			if((read_res = read(data_sock,read_buffer,MAX_CONT_SZ)) == -1){
 				free(b);
-				return -1;
+				return 500;
+			}
+
+			if(read_res < 2 || read_res == MAX_CONT_SZ){
+				free(b);
+				return 500;
 			}
 
 			short int error = *(short int*)read_buffer;
-
-			if(snprintf(cont->cnt_st,1024,"%s",&read_buffer[2]) == -1){
-				/*log error*/
+			if(read_res < 1023){
+				memcpy(cont->cnt_st,&read_buffer[2],strlen(&read_buffer[2]));
+			}else{
+				/*Maybe allocate memory*/
+				fprintf(stderr,"code refactor needed, %s:%d.\n",__FILE__,__LINE__);
 				free(b);
-				return -1;
+				return 500;
 			}
+
+			/*cont is already Zeroed, 
+			 * there is no need to [i] = '\0'*/
 			cont->size = strlen(cont->cnt_st);
 			free(b);
 			if(error == 0)
-				return 0;
+				return 201;
 			else
-				return -1;
-#endif
-			break;
+				return 400;
 		}
 		case S_ORD:
 		{
@@ -633,34 +619,6 @@ static int key_allowed(char **wlist,const char* json, struct Json_token *k)
 	}
 	return -1;
 }
-#endif
-
-static int check_URL_encoding(char *p)
-{
-	int sz = (int)strlen(p);
-	char clean[sz];
-	memset(clean,0,sz);
-	int copied = 0;
-
-	char *s = p;
-	char *space = NULL;
-	while((space = strstr(s,"%20"))){
-		*space++ = ' ';
-		int where = space - s; 	
-		strncpy(&clean[copied],s,where);
-		copied += where;
-		space += 2;
-		s = space;
-	}
-
-	if(!copied)
-		return 0;
-
-	strncpy(&clean[copied],s,strlen(s));
-	strncpy(p,clean,strlen(clean));
-	p[strlen(clean)] = '\0';
-	return 0;
-}
 
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten)
 {
@@ -698,3 +656,53 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 	}
 	return 0;
 }
+
+static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen)
+{
+	int need_mem = 0;
+	int token_nr = t->size * 2;
+	for(int m = 0; m < t->size;m++){
+		int ki = 1 + m * 2;
+		int vi = 2 + m * 2;
+
+		if(vi > token_nr) return -1;
+		int idx = key_allowed(allowed,json,&t[ki]);
+		if(idx == -1) return -1; /*key not allowed*/
+		if(seen[idx]) return -1; /*duplicate key*/
+		seen[idx]++;
+
+		need_mem += (t[ki].end - t[ki].start) + sizeof(uint8_t) + sizeof(uint16_t);
+		need_mem += (t[vi].end - t[vi].start) + sizeof(uint8_t) + sizeof(uint16_t);
+	}
+	*i = (*i + token_nr+1);  
+	return need_mem;
+}
+
+#endif
+static int check_URL_encoding(char *p)
+{
+	int sz = (int)strlen(p);
+	char clean[sz];
+	memset(clean,0,sz);
+	int copied = 0;
+
+	char *s = p;
+	char *space = NULL;
+	while((space = strstr(s,"%20"))){
+		*space++ = ' ';
+		int where = space - s; 	
+		strncpy(&clean[copied],s,where);
+		copied += where;
+		space += 2;
+		s = space;
+	}
+
+	if(!copied)
+		return 0;
+
+	strncpy(&clean[copied],s,strlen(s));
+	strncpy(p,clean,strlen(clean));
+	p[strlen(clean)] = '\0';
+	return 0;
+}
+
