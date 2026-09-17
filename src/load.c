@@ -21,7 +21,8 @@ static int check_URL_encoding(char *p);
 #include <assert.h>
 const int EIGHTkib_limit = 1024 * 8;
 static int key_allowed(char **wlist,const char* json, struct Json_token *k);
-static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten);
+static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr);
+static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten);
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
 
@@ -138,7 +139,7 @@ static const char *ITEM_FIELDS[] = {
 	"name","uom","price_level_id","unit_price", "recipe_id", NULL
 };
 static const char *NEW_ORD_FIELDS[] = {
-	"sales_orders_head","date","customer_id","lines_nr","sales_orders_lines","item_id","qty","request_date",NULL
+	"sales_orders_head","date","customer_id","lines_nr","sales_orders_lines","item_id","qty","uom","unit_price","request_date",NULL
 };
 
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
@@ -200,7 +201,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			/*DATA IS GOOD*/
 
 			size_t size_buffer = sizeof(uint64_t) + (sizeof(uint16_t) * 2) + need_mem;
-			uint16_t *b = malloc(size_buffer);
+			uint8_t *b = malloc(size_buffer);
 			if(!b){
 				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
 				return -1;
@@ -208,12 +209,13 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			memset(b,0,size_buffer);
 
 			size_t bwritten = 0;
-			*b = (uint16_t)resource;
+			memcpy(&b[bwritten],&resource,sizeof(uint16_t));
 			bwritten += sizeof(uint16_t);
+
 			memcpy(&b[bwritten],&size_buffer,sizeof(uint64_t));
 			bwritten += sizeof(uint64_t);
 
-			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten)){
+			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten,token_nr) == -1){
 				free(b);
 				return 500;
 			}
@@ -271,7 +273,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				if(tokens[m].type == STRING_JS){
 					int idx = key_allowed(allowed,preq,&tokens[m]);
 					if(idx == -1) return 400; /*key not allowed*/
-					if(seen[idx]) return 400; /*duplicate key*/
+					if(idx < 5 && seen[idx]) return 400; /*duplicate key*/
 					seen[idx]++;
 					need_mem += (tokens[m].end - tokens[m].start) + sizeof(uint8_t) + sizeof(uint16_t);
 				}
@@ -286,7 +288,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			/*DATA IS GOOD*/
 
 			size_t size_buffer = sizeof(uint64_t) + (sizeof(uint16_t) * 2) + need_mem;
-			uint16_t *b = malloc(size_buffer);
+			uint8_t *b = malloc(size_buffer);
 			if(!b){
 				fprintf(stderr,"(%s): malloc() failed, %s:%d.\n",prog,__FILE__,__LINE__);
 				return -1;
@@ -299,7 +301,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			memcpy(&b[bwritten],&size_buffer,sizeof(uint64_t));
 			bwritten += sizeof(uint64_t);
 
-			if(serialize(preq,tokens,(uint8_t*)b,size_buffer,&bwritten)){
+			if(serialize(preq,tokens,b,size_buffer,&bwritten,token_nr) == -1){
 				free(b);
 				return 500;
 			}
@@ -620,43 +622,83 @@ static int key_allowed(char **wlist,const char* json, struct Json_token *k)
 	return -1;
 }
 
-static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten)
+static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr)
 {
+	if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
+
 	memcpy(&buffer[*bwritten], (uint16_t*)&t->size,sizeof(uint16_t));
 	*bwritten += sizeof(uint16_t);
-	if(*bwritten > buf_size) return -1;
-	for(int m = 0; m < t->size; m++){
-		int k = 1 + m * 2;
-		int v = 2 + m * 2;
 
-		struct Json_token *token = t + v;
-		memcpy(&buffer[*bwritten],(uint8_t*)&token->type,sizeof(uint16_t));
+	if((t->size * 2 + 1) == token_nr){
+		if(ser_flat_object(json,t,buffer,buf_size,bwritten) == -1) return -1;
+		return 0;
+	}
+
+	/*we have nested objects*/
+	/*start from 1 so we skip the outer object*/
+	for(int m = 1; m < token_nr; m++){
+		if(t[m].type == ARRAY_JS) continue;
+
+		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
+
+		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
 		*bwritten += sizeof(uint8_t);
-		if(*bwritten > buf_size) return -1;
 
-		token = t + k;
-		int len = token->end - token->start;
+		if(t[m].type == OBJECT_JS){
+			if(ser_flat_object(json,&t[m],buffer,buf_size,bwritten) == -1) return -1;
+			m += t[m].size * 2;
+			continue;
+		}
+
+		int len = t[m].end - t[m].start;
+		if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
 		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
 		*bwritten += sizeof(uint16_t);
-		if(*bwritten > buf_size) return -1;
 
-		memcpy(&buffer[*bwritten],&json[token->start],len);
+		if((size_t)(*bwritten + len)> buf_size) return -1;
+		memcpy(&buffer[*bwritten],&json[t[m].start],len);
 		*bwritten += len;
-		
-		token = t + v;
-
-		len = token->end - token->start;
-		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
-		*bwritten += sizeof(uint16_t);
-		if(*bwritten > buf_size) return -1;
-
-		memcpy(&buffer[*bwritten],&json[token->start],len);
-		*bwritten += len;
-		if(*bwritten > buf_size) return -1;
 	}
 	return 0;
 }
 
+static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten)
+{
+	for(int m = 0; m < t->size; m++){
+		int k = 1 + m * 2;
+		int v = 2 + m * 2;
+
+		/*write type of the value*/
+		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
+		struct Json_token *token = t + v;
+		memcpy(&buffer[*bwritten],(uint8_t*)&token->type,sizeof(uint16_t));
+		*bwritten += sizeof(uint8_t);
+
+		/*write key*/
+		token = t + k;
+		int len = token->end - token->start;
+		if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
+		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
+		*bwritten += sizeof(uint16_t);
+
+		if((*bwritten + len) > buf_size) return -1;
+		memcpy(&buffer[*bwritten],&json[token->start],len);
+		*bwritten += len;
+
+		/*write value*/
+		token = t + v;
+		len = token->end - token->start;
+		if((*bwritten +sizeof(uint16_t)) > buf_size) return -1;
+		memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
+		*bwritten += sizeof(uint16_t);
+
+		if((*bwritten + len) > buf_size) return -1;
+		memcpy(&buffer[*bwritten],&json[token->start],len);
+		*bwritten += len;
+	}
+
+	return 0;
+}
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen)
 {
 	int need_mem = 0;
