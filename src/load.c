@@ -130,7 +130,7 @@ void clear_content(struct Content *cont){
  *  this is just a sales order system
  * */
 #ifdef OWN_DB
-#define MAX_KEY_ALLOWED 10
+#define MAX_KEY_ALLOWED 200
 static const char *CUSTOMER_FILEDS[] = {
 	"name", "addr", "csz", "country", "phone", "fax", "email", "price_level_id",NULL
 	};
@@ -139,7 +139,7 @@ static const char *ITEM_FIELDS[] = {
 	"name","uom","price_level_id","unit_price", "recipe_id", NULL
 };
 static const char *NEW_ORD_FIELDS[] = {
-	"sales_orders_head","date","customer_id","lines_nr","sales_orders_lines","item_id","qty","uom","unit_price","request_date",NULL
+	"sales_orders_head","date","customer_id","price_level_id","lines_nr","sales_orders_lines","item_id","qty","uom","unit_price","request_date",NULL
 };
 
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
@@ -273,7 +273,7 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				if(tokens[m].type == STRING_JS){
 					int idx = key_allowed(allowed,preq,&tokens[m]);
 					if(idx == -1) return 400; /*key not allowed*/
-					if(idx < 5 && seen[idx]) return 400; /*duplicate key*/
+					if(idx < 6 && seen[idx]) return 400; /*duplicate key*/
 					seen[idx]++;
 					need_mem += (tokens[m].end - tokens[m].start) + sizeof(uint8_t) + sizeof(uint16_t);
 				}
@@ -641,14 +641,15 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 
 		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
 
-		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
-		*bwritten += sizeof(uint8_t);
-
 		if(t[m].type == OBJECT_JS){
 			if(ser_flat_object(json,&t[m],buffer,buf_size,bwritten) == -1) return -1;
 			m += t[m].size * 2;
 			continue;
 		}
+
+		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
+		*bwritten += sizeof(uint8_t);
+
 
 		int len = t[m].end - t[m].start;
 		if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
@@ -664,6 +665,11 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 
 static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten)
 {
+	if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
+
+	memcpy(&buffer[*bwritten], (uint16_t*)&t->size,sizeof(uint16_t));
+	*bwritten += sizeof(uint16_t);
+
 	for(int m = 0; m < t->size; m++){
 		int k = 1 + m * 2;
 		int v = 2 + m * 2;
