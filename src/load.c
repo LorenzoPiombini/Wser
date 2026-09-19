@@ -637,7 +637,6 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 	/*we have nested objects*/
 	/*start from 1 so we skip the outer object*/
 	for(int m = 1; m < token_nr; m++){
-		if(t[m].type == ARRAY_JS) continue;
 
 		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
 
@@ -649,6 +648,8 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 
 		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
 		*bwritten += sizeof(uint8_t);
+
+		if(t[m].type == ARRAY_JS) continue;
 
 
 		int len = t[m].end - t[m].start;
