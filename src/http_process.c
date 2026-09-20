@@ -181,8 +181,7 @@ int HTTP_work_process(int data_sock,int secure)
 
 				struct Request req = {0};
 				int r = http_step(cli_sock,&req);
-				if(r == -1)
-					goto teardown;
+				if(r == -1) goto teardown;
 
 				if(r == EAGAIN || r == EWOULDBLOCK) goto loop;
 #ifdef OWN_DB
@@ -191,8 +190,11 @@ int HTTP_work_process(int data_sock,int secure)
 				} else{
 					process_request(&req,cli_sock,r,secure,-1);
 				}
+#else
+				process_request(&req,cli_sock,r,secure,-1);
+				clear_request(&req);
 #endif
-				goto teardown;
+				goto teardown;/**/
 loop:
 				int nfd =-1,j;
 				for(;;){
@@ -210,8 +212,10 @@ loop:
 						}else{
 							process_request(&req,events[j].data.fd,r,secure,-1);
 						}
-#endif
+#else
+						process_request(&req,events[j].data.fd,r,secure,-1);
 						clear_request(&req);
+#endif
 						goto teardown;
 					}
 				}
