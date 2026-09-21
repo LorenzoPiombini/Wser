@@ -139,7 +139,7 @@ static const char *ITEM_FIELDS[] = {
 	"name","uom","price_level_id","unit_price", "recipe_id", NULL
 };
 static const char *NEW_ORD_FIELDS[] = {
-	"sales_orders_head","date","customer_id","price_level_id","lines_nr","sales_orders_lines","item_id","qty","uom","unit_price","request_date",NULL
+	"sales_orders_head","date","customer_id","price_level_id","lines_nr","sales_orders_lines","item_id","qty","uom","unit_price","request_date","disc",NULL
 };
 
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
@@ -269,7 +269,17 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 			/*check the keys*/
 			int need_mem = 0;
 			int seen[MAX_KEY_ALLOWED] = {0};
-			for(int m = 0; m < token_nr; m++){
+			for(int m = 1; m < token_nr; m++){
+				if(tokens[m].type == ARRAY_JS){
+					while( m + 1 < token_nr &&
+						tokens[m+1].type == OBJECT_JS){
+						int r = 0;
+						m++;
+						if((r = check_key_in_object(allowed,preq,&tokens[m],&m,seen)) == -1) return -1;
+						need_mem += r;
+					}
+					continue;
+				}
 				if(tokens[m].type == STRING_JS){
 					int idx = key_allowed(allowed,preq,&tokens[m]);
 					if(idx == -1) return 400; /*key not allowed*/
@@ -280,7 +290,8 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 
 				if(tokens[m+1].type == OBJECT_JS){
 					int r = 0;
-					if((r = check_key_in_object(allowed,preq,&tokens[m+1],&m,seen)) == -1) return -1;
+					m++;
+					if((r = check_key_in_object(allowed,preq,&tokens[m],&m,seen)) == -1) return -1;
 					need_mem += r;
 				}
 			}
@@ -624,15 +635,16 @@ static int key_allowed(char **wlist,const char* json, struct Json_token *k)
 
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr)
 {
-	if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
-
-	memcpy(&buffer[*bwritten], (uint16_t*)&t->size,sizeof(uint16_t));
-	*bwritten += sizeof(uint16_t);
 
 	if((t->size * 2 + 1) == token_nr){
 		if(ser_flat_object(json,t,buffer,buf_size,bwritten) == -1) return -1;
 		return 0;
 	}
+
+	if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
+
+	memcpy(&buffer[*bwritten], (uint16_t*)&t->size,sizeof(uint16_t));
+	*bwritten += sizeof(uint16_t);
 
 	/*we have nested objects*/
 	/*start from 1 so we skip the outer object*/
@@ -717,13 +729,13 @@ static int check_key_in_object(char **allowed,const char *json,struct Json_token
 		if(vi > token_nr) return -1;
 		int idx = key_allowed(allowed,json,&t[ki]);
 		if(idx == -1) return -1; /*key not allowed*/
-		if(seen[idx]) return -1; /*duplicate key*/
+		if(idx < 6 && seen[idx]) return 400; /*duplicate key*/
 		seen[idx]++;
 
 		need_mem += (t[ki].end - t[ki].start) + sizeof(uint8_t) + sizeof(uint16_t);
 		need_mem += (t[vi].end - t[vi].start) + sizeof(uint8_t) + sizeof(uint16_t);
 	}
-	*i = (*i + token_nr+1);  
+	*i  += token_nr;  
 	return need_mem;
 }
 
