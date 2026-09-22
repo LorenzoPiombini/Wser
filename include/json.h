@@ -50,4 +50,5 @@ struct Json_token{
 
 int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t max_tokens);
 int write_actual_json_tokens_to_mem(char *buf,size_t buf_size, struct Json_token *t,size_t token_size);
+int is_token_empty(struct Json_token *t);
 #endif

@@ -230,3 +230,8 @@ static int parse_literal(const char  *json,size_t len,struct Json_token *t, size
 	return 0;
 }
 
+int is_token_empty(struct Json_token *t)
+{
+	return 	t->type == 0 && t->start == 0 
+		&& t->end == 0 && t->size == 0 && t->parent == 0;
+}
