@@ -23,6 +23,7 @@ const int EIGHTkib_limit = 1024 * 8;
 static int key_allowed(char **wlist,const char* json, struct Json_token *k);
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr);
 static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten);
+static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten);
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
 
@@ -226,7 +227,8 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				return 500;
 			}
 
-			/*TODO: refactor the socket comunication so that you read once with 
+			/*
+ 			 * TODO: refactor the socket comunication so that you read once with 
 			 * the size of the next message then you allocate a buffer accordangly so 
 			 * you can be eficient
 			 *
@@ -635,7 +637,6 @@ static int key_allowed(char **wlist,const char* json, struct Json_token *k)
 
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr)
 {
-
 	if((t->size * 2 + 1) == token_nr){
 		if(ser_flat_object(json,t,buffer,buf_size,bwritten) == -1) return -1;
 		return 0;
@@ -650,14 +651,13 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 	/*start from 1 so we skip the outer object*/
 	for(int m = 1; m < token_nr; m++){
 
-		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
-
 		if(t[m].type == OBJECT_JS){
 			if(ser_flat_object(json,&t[m],buffer,buf_size,bwritten) == -1) return -1;
 			m += t[m].size * 2;
 			continue;
 		}
 
+		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
 		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
 		*bwritten += sizeof(uint8_t);
 
@@ -676,6 +676,34 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 	return 0;
 }
 
+static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten)
+{
+	int parent = t->parent;
+	struct Json_token *tmp = t;
+	while(tmp && !is_token_empty(tmp) && tmp->parent == parent){
+
+		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
+		memcpy(&buffer[*bwritten],(uint8_t*)&tmp->type,sizeof(uint16_t));
+
+		*bwritten += sizeof(uint8_t);
+		switch(tmp->type){
+		case OBJECT_JS: ser_flat_object(); break;
+		default:
+			uint16_t len = tmp->end - tmp->start;
+			if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
+			memcpy(&buffer[*bwritten],(uint16_t*)&len,sizeof(uint16_t));
+			*bwritten += sizeof(uint16_t);
+
+			if((*bwritten + len) > buf_size) return -1;
+
+			memcpy(&buffer[*bwritten],&json[tmp->start],len);
+			*bwritten += len;
+			break;
+		}	
+		tmp += 1;
+	}
+
+}
 static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten)
 {
 	if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
