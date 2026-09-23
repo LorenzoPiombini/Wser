@@ -662,14 +662,15 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 			continue;
 		}
 
-		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
-		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
-		*bwritten += sizeof(uint8_t);
-
 		if(t[m].type == ARRAY_JS){
 			if(ser_array(json,&t[m],buffer,buf_size,bwritten,&m) == -1) return -1;
 			continue;
 		}
+
+		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
+		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
+		*bwritten += sizeof(uint8_t);
+
 
 
 		int len = t[m].end - t[m].start;
