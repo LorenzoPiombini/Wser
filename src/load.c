@@ -21,9 +21,10 @@ static int check_URL_encoding(char *p);
 #include <assert.h>
 const int EIGHTkib_limit = 1024 * 8;
 static int key_allowed(char **wlist,const char* json, struct Json_token *k);
+/*orgainizing JSON token,functions*/
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr);
 static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten);
-static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten);
+static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten,int *cursor);
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
 
@@ -275,13 +276,17 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 				if(tokens[m].type == ARRAY_JS){
 					while( m + 1 < token_nr &&
 						tokens[m+1].type == OBJECT_JS){
+						/*each array element is precedet from its type*/
+						need_mem++; 
 						int r = 0;
 						m++;
 						if((r = check_key_in_object(allowed,preq,&tokens[m],&m,seen)) == -1) return -1;
 						need_mem += r;
 					}
+					need_mem += sizeof(uint32_t);
 					continue;
 				}
+
 				if(tokens[m].type == STRING_JS){
 					int idx = key_allowed(allowed,preq,&tokens[m]);
 					if(idx == -1) return 400; /*key not allowed*/
@@ -661,7 +666,10 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 		memcpy(&buffer[*bwritten],(uint8_t*)&t[m+1].type,sizeof(uint16_t));
 		*bwritten += sizeof(uint8_t);
 
-		if(t[m].type == ARRAY_JS) continue;
+		if(t[m].type == ARRAY_JS){
+			if(ser_array(json,&t[m],buffer,buf_size,bwritten,&m) == -1) return -1;
+			continue;
+		}
 
 
 		int len = t[m].end - t[m].start;
@@ -676,10 +684,10 @@ static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, si
 	return 0;
 }
 
-static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten)
+static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten,int *cursor)
 {
-	int parent = t->parent;
-	struct Json_token *tmp = t;
+	struct Json_token *tmp = t + 1;
+	int parent = tmp->parent;
 	while(tmp && !is_token_empty(tmp) && tmp->parent == parent){
 
 		if((*bwritten + sizeof(uint8_t)) > buf_size) return -1;
@@ -687,7 +695,12 @@ static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_
 
 		*bwritten += sizeof(uint8_t);
 		switch(tmp->type){
-		case OBJECT_JS: ser_flat_object(); break;
+		case OBJECT_JS: 
+			
+			if(ser_flat_object(json,tmp,buffer,buf_size,bwritten) == -1) return -1;
+			*cursor += (tmp->size * 2 + 1);
+			tmp += tmp->size * 2;
+			break;
 		default:
 			uint16_t len = tmp->end - tmp->start;
 			if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
@@ -701,9 +714,16 @@ static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_
 			break;
 		}	
 		tmp += 1;
+		(*cursor)++;
 	}
 
+	uint32_t end_array = JSON_END_ARRAY;
+	if((*bwritten + sizeof(uint32_t)) > buf_size) return -1;
+	memcpy(&buffer[*bwritten],&end_array,sizeof(uint32_t));
+	*bwritten += sizeof(uint32_t);
+	return 0;
 }
+
 static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten)
 {
 	if((*bwritten + sizeof(uint16_t)) > buf_size) return -1;
@@ -746,6 +766,7 @@ static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer
 
 	return 0;
 }
+
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen)
 {
 	int need_mem = 0;
@@ -756,6 +777,7 @@ static int check_key_in_object(char **allowed,const char *json,struct Json_token
 
 		if(vi > token_nr) return -1;
 		int idx = key_allowed(allowed,json,&t[ki]);
+
 		if(idx == -1) return -1; /*key not allowed*/
 		if(idx < 6 && seen[idx]) return 400; /*duplicate key*/
 		seen[idx]++;
