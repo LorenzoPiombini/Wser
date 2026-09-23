@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <string.h>
 #include "load.h"
@@ -39,35 +40,50 @@ int load_resource(char *rpath, struct Content *cont)
 		return -1;
 	}
 
-	FILE *fp = fopen(file_path,"rb");
-	if(!fp){
+	int dir = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
+	if(dir == -1){
+		 return -1;
+	}
+	int resource = openat(-1,file_path,O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+	if(resource == -1){
+		close(dir);
 		strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
 		cont->size = strlen(NOT_FOUND) + 1;
 		fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
+		if(errno == ELOOP) printf("they were trying to open a link\n");
 		return -1;
 	}
-	
-	if(fseek(fp,0,SEEK_END) == -1){
-		fclose(fp);
+
+	if(lseek(resource,0,SEEK_END) == -1){
+		close(resource);
+		close(dir);
 		return -1;	
 	}
 
-	long size = 0;
-	if((size = ftell(fp)) == -1){
-		fclose(fp);
-		return -1;
+	off_t size = 0;
+	if((size = lseek(resource,0,SEEK_CUR)) == -1){
+		close(resource);
+		close(dir);
+		return -1;	
 	}
 
-	rewind(fp);
+	if(lseek(resource,0,SEEK_SET) == -1){
+		close(resource);
+		close(dir);
+		return -1;	
+	}
+
 	char buf[size+1];
 	memset(buf,0,size+1);
-	if(fread(buf,(size_t)size,1,fp) != 1){
+	if(read(resource,buf,(size_t)size) <= 0){
 		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,rpath);
-		fclose(fp);
+		close(resource);
+		close(dir);
 		return -1;
 	}
 
-	fclose(fp);	
+	close(dir);
+	close(resource);
 	if((size + 1) > MAX_CONT_SZ){
 		errno = 0;
 		cont->cnt_dy = calloc(size+1,sizeof(char));
