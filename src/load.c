@@ -30,6 +30,8 @@ static int check_key_in_object(char **allowed,const char *json,struct Json_token
 
 int load_resource(char *rpath, struct Content *cont)
 {
+	if(strstr(rpath,"..")) return -1;
+
 	char *file_path = map_rpath(rpath);
 	if(!file_path) {
 		/*debug print*/

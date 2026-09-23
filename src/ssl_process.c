@@ -776,7 +776,7 @@ static int process_request(struct Request *req, int cli_sock)
 			&& !((strlen(req->resource) == 1) && strncmp(req->resource,"/",1) == 0)){
 
 			fprintf(stderr,"resource is %s\n",req->resource);
-		if(load_resource_db(req,&cont,work_proc_data_sock) == -1){
+		if(load_resource_db(req,&cont,work_proc_data_sock) == 400){
 				/*send not found response*/
 				if(cont.cnt_st[0] != '\0'){
 					if(generate_response(&res,404,&cont,req) == -1) break;
