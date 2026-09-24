@@ -31,6 +31,7 @@ static int check_key_in_object(char **allowed,const char *json,struct Json_token
 
 int load_resource(char *rpath, struct Content *cont)
 {
+
 	if(strstr(rpath,"..")) return -1;
 
 	char *file_path = map_rpath(rpath);
@@ -40,68 +41,78 @@ int load_resource(char *rpath, struct Content *cont)
 		return -1;
 	}
 
-	int dir = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
-	if(dir == -1){
+	int fd = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
+	if(fd == -1){
 		 return -1;
 	}
-	int resource = openat(-1,file_path,O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-	if(resource == -1){
-		close(dir);
-		strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
-		cont->size = strlen(NOT_FOUND) + 1;
-		fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
-		if(errno == ELOOP) printf("they were trying to open a link\n");
-		return -1;
+
+	char *part = file_path + 1;
+	for(;;){
+		char *slash = strchr(part,'/');
+		if (slash) *slash = '\0';
+
+		int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW;
+		if(slash) flags |= O_DIRECTORY;
+
+		errno = 0;
+		int resource = openat(fd,part,flags);
+		if(resource == -1){
+			close(fd);
+			strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
+			cont->size = strlen(NOT_FOUND) + 1;
+			fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
+			if(errno == ELOOP) fprintf(stderr,"they were trying to open a link\n");
+			return -1;
+		}
+
+		close(fd);
+		fd = resource;
+		if(!slash) break;
+		part = slash++;
 	}
 
-	if(lseek(resource,0,SEEK_END) == -1){
-		close(resource);
-		close(dir);
+	if(lseek(fd,0,SEEK_END) == -1){
+		close(fd);
 		return -1;	
 	}
 
 	off_t size = 0;
-	if((size = lseek(resource,0,SEEK_CUR)) == -1){
-		close(resource);
-		close(dir);
+	if((size = lseek(fd,0,SEEK_CUR)) == -1){
+		close(fd);
 		return -1;	
 	}
 
-	if(lseek(resource,0,SEEK_SET) == -1){
-		close(resource);
-		close(dir);
+	if(lseek(fd,0,SEEK_SET) == -1){
+		close(fd);
 		return -1;	
 	}
 
-	char buf[size+1];
-	memset(buf,0,size+1);
-	if(read(resource,buf,(size_t)size) <= 0){
+	size_t length = (size_t)size;
+	char *buf = cont->cnt_st;
+	char *allocated  = NULL;
+
+	if(length >= sizeof(cont->cnt_st)){
+		allocated = malloc(length +1);
+		if(!allocated){
+			fprintf(stderr,"(%s): malloc() failed.%s:%d\n",prog,__FILE__,__LINE__-2);
+			close(fd);
+			return -1;
+		}
+		cont->cnt_dy = buf = allocated;
+		memset(buf,0,length+1);
+	}
+
+	int r = 0;
+	if((r = read(fd,buf,length)) <= 0
+			|| (size_t)r < length){
 		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,rpath);
-		close(resource);
-		close(dir);
+		if(allocated) free(allocated);
+		close(fd);
 		return -1;
 	}
 
-	close(dir);
-	close(resource);
-	if((size + 1) > MAX_CONT_SZ){
-		errno = 0;
-		cont->cnt_dy = calloc(size+1,sizeof(char));
-		if(!cont->cnt_dy){
-			if(errno == ENOMEM) 
-				fprintf(stderr,"(%s): not enough memory to allocate dynamic buffer for '%s'.\n",prog,rpath);
-			else
-				fprintf(stderr,"(%s): cannot allocate dynamic buffer for '%s'.\n",prog,rpath);
-
-			return -1;
-		}
-		strncpy(cont->cnt_dy,buf,size);
-		cont->size = (size_t)size;
-		return 0;
-	}
-
-	cont->size = (size_t)size;
-	strncpy(cont->cnt_st,buf,size);
+	close(fd);
+	cont->size = length;
 	return 0;
 }
 
@@ -110,29 +121,19 @@ static char *map_rpath(char *rpath)
 {
 	if(*rpath == '\0') return NULL;
 
-	char dir[DEF_DIR_L+1] = {0};
-	if(getuid() != 0)
-		strncpy(dir,"www",DEF_DIR_L+1);
-	else 
-		strncpy(dir,DEF_DIR,DEF_DIR_L+1);
-		
 	static char path[1024] = {0};
 	size_t l = strlen(rpath);
 	size_t l_map = 1;
 	if (l_map == l){
 		if(strncmp("/",rpath,l_map) == 0){
 			size_t inx_l = strlen("/index.html");	
-			l += DEF_DIR_L + inx_l + 1;
-			strncpy(path,dir,DEF_DIR_L);
-			strncat(path,"/index.html",inx_l);
-
+			strncpy(path,"/index.html",inx_l);
 			return path;
 		} 
 		return NULL;
 	}
-	l += DEF_DIR_L + 1;
-	strncpy(path,dir,DEF_DIR_L);
-	strncat(path,rpath,l - DEF_DIR_L -1);
+
+	strncat(path,rpath,l);
 	return path;
 }
 
