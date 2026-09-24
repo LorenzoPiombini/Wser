@@ -143,6 +143,7 @@ static char *map_rpath(char *rpath)
 		return NULL;
 	}
 
+	if(l > 1024) return NULL;
 	strncat(path,rpath,l);
 	return path;
 }
