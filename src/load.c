@@ -555,10 +555,10 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 					}
 
 					/*read data from worker proc*/
-					ssize_t bread = 0, res = 0;
-					while(bread < size_rb){
-						res = read(data_sock,&read_buffer[bread],size_rb);
-						if(res == -1){
+					ssize_t bread = 0; 
+					while(bread < size){
+						ssize_t res = read(data_sock,&read_buffer[bread],size_rb - bread);
+						if(res <= 0){
 							free(read_buffer);
 							return -1;
 						}
