@@ -68,8 +68,14 @@ int json_parser(const char *json, size_t len,struct Json_token *tokens, size_t m
 		}
 		case ',':
 		case ':':
+		{
+			size_t j = i;
+			j++;
+			skip_ws(json,len,&j);
+			if(json[j] == ']' || json[j] == '}') return -1;
 			i++;
 			break;
+		}
 		default: /*number or literal*/
 			if(json[i] == 0x2D || (json[i] >= 0x30 && json[i] <= 0x39)){
 				if(tk_count >= (int) max_tokens) return JSON_TK_LIMIT_ERR;
