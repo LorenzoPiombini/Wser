@@ -13,6 +13,8 @@ static char prog[] = "wser";
 static char *map_rpath(char *rpath);
 static int check_URL_encoding(char *p);
 
+#define MAX_LOADABLE_FILE (16U * 1024U * 1024U)
+
 #ifdef OWN_DB
 
 #include "worker_process.h" /* database handler*/
@@ -82,6 +84,11 @@ int load_resource(char *rpath, struct Content *cont)
 		return -1;	
 	}
 
+	if(size < 0 || size > MAX_LOADABLE_FILE){
+		close(fd);
+		return -1;	
+	}
+
 	if(lseek(fd,0,SEEK_SET) == -1){
 		close(fd);
 		return -1;	
@@ -103,7 +110,7 @@ int load_resource(char *rpath, struct Content *cont)
 	}
 
 	int r = 0;
-	if((r = read(fd,buf,length)) <= 0
+	if((r = read(fd,buf,length)) < 0
 			|| (size_t)r < length){
 		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,rpath);
 		if(allocated) free(allocated);
