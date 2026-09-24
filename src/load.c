@@ -123,6 +123,8 @@ static char *map_rpath(char *rpath)
 	if(*rpath == '\0') return NULL;
 
 	static char path[1024] = {0};
+	memset(path,0,1024);
+
 	size_t l = strlen(rpath);
 	size_t l_map = 1;
 	if (l_map == l){
