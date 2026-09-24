@@ -128,7 +128,7 @@ int load_resource(char *rpath, struct Content *cont)
 
 static char *map_rpath(char *rpath)
 {
-	if(*rpath == '\0') return NULL;
+	if(*rpath != '/') return NULL;
 
 	static char path[1024] = {0};
 	memset(path,0,1024);
