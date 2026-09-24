@@ -68,7 +68,7 @@ int load_resource(char *rpath, struct Content *cont)
 		close(fd);
 		fd = resource;
 		if(!slash) break;
-		part = slash++;
+		part = slash + 1;
 	}
 
 	if(lseek(fd,0,SEEK_END) == -1){
@@ -98,7 +98,7 @@ int load_resource(char *rpath, struct Content *cont)
 			close(fd);
 			return -1;
 		}
-		cont->cnt_dy = buf = allocated;
+		buf = allocated;
 		memset(buf,0,length+1);
 	}
 
@@ -113,6 +113,7 @@ int load_resource(char *rpath, struct Content *cont)
 
 	close(fd);
 	cont->size = length;
+	if(allocated) cont->cnt_dy = buf;
 	return 0;
 }
 
