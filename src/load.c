@@ -109,7 +109,7 @@ int load_resource(char *rpath, struct Content *cont)
 		memset(buf,0,length+1);
 	}
 
-	int r = 0;
+	ssize_t r = 0;
 	if((r = read(fd,buf,length)) < 0
 			|| (size_t)r < length){
 		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,rpath);
@@ -118,6 +118,7 @@ int load_resource(char *rpath, struct Content *cont)
 		return -1;
 	}
 
+	buf[length] = '\0';
 	close(fd);
 	cont->size = length;
 	if(allocated) cont->cnt_dy = buf;
@@ -143,13 +144,14 @@ static char *map_rpath(char *rpath)
 		return NULL;
 	}
 
-	if(l > 1024) return NULL;
-	strncat(path,rpath,l);
+	if(l >= sizeof(path)) return NULL;
+	strncpy(path,rpath,l);
 	return path;
 }
 
 void clear_content(struct Content *cont){
 	if(cont->cnt_dy) free(cont->cnt_dy);
+	cont->cnt_dy = NULL;
 
 	memset(cont->cnt_st,0,MAX_CONT_SZ);
 	cont->size = 0;
