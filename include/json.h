@@ -18,6 +18,16 @@ enum json_type{
 	NUL_JS
 };
 
+enum json_state{
+	KEY,
+	VALUE,
+	COLON,
+	COMMA_OR_CLOSING_OBJ,
+	END,
+	VALUE_OR_CLOSING_OBJECT,
+	KEY_OR_CLOSING_OBJECT
+};
+
 enum sturctural_chars{
 	BEGIN_ARRAY = 		(int) '[',
 	END_ARRAY = 		(int) ']',
