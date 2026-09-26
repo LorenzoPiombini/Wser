@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdint.h>
+#include <errno.h>
+#include <stdlib.h>
 #include "json.h"
 
 
@@ -275,4 +278,83 @@ int is_token_empty(struct Json_token *t)
 {
 	return 	t->type == 0 && t->start == 0 
 		&& t->end == 0 && t->size == 0 && t->parent == 0;
+}
+
+int decode_json_escape(const char* src, size_t slen,char *dst,size_t dlen)
+{
+	
+	if(dlen > slen) return -1;
+	for(size_t i = 0, j = 0; i < slen; i++){
+		switch(src[i]){
+		case '\\':
+		{
+			size_t k = i + 1;
+			switch(src[k]){
+			case '"': 	if ((j + 1) < dlen) dst[j++] = '"';  i++;break;
+			case '/': 	if ((j + 1) < dlen) dst[j++] = '/';  i++;break;
+			case '\\': 	if ((j + 1) < dlen) dst[j++] = '\\'; i++;break;
+			case 'b': 	if ((j + 1) < dlen) dst[j++] = '\b'; i++;break;
+			case 'f': 	if ((j + 1) < dlen) dst[j++] = '\f'; i++;break;
+			case 'n': 	if ((j + 1) < dlen) dst[j++] = '\n'; i++;break;
+			case 'r': 	if ((j + 1) < dlen) dst[j++] = '\r'; i++;break;
+			case 't': 	if ((j + 1) < dlen) dst[j++] = '\t'; i++;break;
+			case 'u': 	
+			{
+				int r = 0;
+				if ((r = encode_json_unicode((const uint8_t*)&src[k+1],&dst[j],slen - (k+1),dlen - j)) == -1) return -1;
+				j += r;
+				i += 5;
+				break;
+			}
+			default:
+				dst[j++] = src[k];
+				break;
+			}
+			break;
+		}
+		default:
+			dst[j++] = src[i];
+			break;
+		}
+	}
+
+	return 0;
+}
+
+int encode_json_unicode(const uint8_t *src, uint8_t *dst,size_t slen,size_t dlen)
+{
+	if(slen < 4) return -1;
+	uint8_t bridge[7] = {0};
+	bridge[0] = '0';
+	bridge[1] = 'x';
+	memcpy(&bridge[2],src,4);
+
+	/*convert the unicode point from json to hex*/	
+	errno = 0;
+	long hex = strtol(bridge,NULL,16);
+	if(errno == ERANGE || errno == EINVAL) return -1;
+		
+	if(hex <= 0x7F){
+		if(dlen < 1) return -1;
+		*dst = (uint8_t)hex;
+		return 1;
+	}
+	
+	if(hex >=0x80 && hex <= 0x7FF){
+		if(dlen < 2) return -1;
+		dst[0] = (uint8_t)(0xC0 | ((hex >> 6) & 0x1F));
+		dst[1] = (uint8_t)(0x80 | (hex & 0x3F));
+		return 2;
+	}
+		
+	if(hex >= 0xD800 && hex <= 0xDFFF) return -1;
+	if(hex >=0x800 && hex <= 0xFFFF){
+		if(dlen < 3) return -1;
+		dst[0] = (uint8_t)(0xE0 | ((hex >> 12) & 0x0F));
+		dst[1] = (uint8_t)(0x80 | ((hex >> 6) & 0x3F));
+		dst[2] = (uint8_t)(0x80 | (hex & 0x3F));
+		return 3;
+	}
+	
+	return -1;
 }
