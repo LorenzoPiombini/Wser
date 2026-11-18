@@ -6,6 +6,7 @@
 #define JSON_MAX_TOKENS 512
 #define JSON_END_ARRAY (0 | 0x02000000)
 
+#include <stdint.h>
 /*Mini Json parser def*/
 /*json grammar*/
 enum json_type{
