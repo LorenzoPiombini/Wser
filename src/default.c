@@ -10,9 +10,14 @@
 #include "default.h"
 
 
+char **domains = NULL;
 char dir[PATH_MAX] = {0};
+char certificates_path[PATH_MAX] = {0};
 static char prog[] = "wser";
 static int no_su_setting();
+static int create_wser_config();
+static int go_to_user_home_dir();
+static int load_wser_config(FILE **config_file);
 
 int check_default_setting()
 {
@@ -78,9 +83,8 @@ int check_default_setting()
 	return -1;
 }
 
-static int no_su_setting()
+static int go_to_user_home_dir()
 {
-	/*get the user home path and check/create the defautl folder there*/
 	errno = 0;
 	if(!getcwd(dir,PATH_MAX)){
 		if(errno == ENAMETOOLONG){
@@ -110,12 +114,39 @@ static int no_su_setting()
 		}
 
 	}
+
+	return 0;
+}
+static int no_su_setting()
+{
+	/*get the user home path and check/create the defautl folder there*/
+	if(go_to_user_home_dir() == -1) return -1;
+
+	/* now dir contain current working directory 
+		before moving to user home dir */
+
 	errno= 0;
 	struct stat st;
 	if(stat(DEF_DIR_no_su,&st) == -1){
 		if(errno == ENOENT){
 			/* make dir*/
 			if(mkdir(DEF_DIR_no_su,S_IFDIR | S_IRWXU) == -1){
+				if(chdir(dir) == -1){
+					fprintf(stderr,"(%s): cannot change directory.\n",prog);
+					return -1;
+				}
+				return -1;
+			}
+			FILE *cf = NULL;
+			if(create_wser_config(&cf) == -1){
+				fprintf(stderr,"(%s): cannot create config file",prog);	
+				if(chdir(dir) == -1){
+					fprintf(stderr,"(%s): cannot change directory.\n",prog);
+					return -1;
+				}
+				return -1;
+			}
+			if(load_wser_config(&cf) == -1){
 				if(chdir(dir) == -1){
 					fprintf(stderr,"(%s): cannot change directory.\n",prog);
 					return -1;
@@ -139,4 +170,77 @@ static int no_su_setting()
 
 	if(S_ISDIR(st.st_mode)) return 0;
 	return -1;
+}
+
+
+static int load_wser_config(FILE **config_file)
+{
+
+	char buf[MAX_FILE_ON_STACK];
+	memset(buf,0,MAX_FILE_ON_STACK);
+	if(!(*config_file)) return -1;
+	if(fseek(*config_file,0,SEEK_END) == -1) goto failed;
+	
+	long long size = ftell(*config_file);
+	rewind(*config_file);
+
+	if(size  + 1 > MAX_FILE_ON_STACK) goto failed;
+
+	
+	size_t r = fread(buf,size,1,*config_file);
+	if(r < (size_t)size){
+		if(ferror(*config_file)) goto failed;
+	}
+			
+	fclose(*config_file);
+	*config_file = NULL;
+	
+	/*load the paramater*/
+	char *marker= NULL;
+	if((marker = strstr(buf,"CERT_PATH"))){
+		marker += strlen("CERT_PATH=");
+		char *end = strchr(marker,'\n'); 
+		if(!end) goto failed;
+		int s = end - marker;
+		strncpy(certificates_path,marker,s);
+	}
+
+	if((marker = strstr(buf,"SERVER_LOG_PATH"))){
+		marker += strlen("SERVER_LOG_PATH=");
+		char *end = strchr(marker,'\n'); 
+		if(!end) goto failed;
+		int s = end - marker;
+		strncpy(server_log_file,marker,s);
+	}
+	return 0;
+failed:
+	printf("reading config file failed.");
+	if(*config_file) fclose(*config_file);
+	return -1;
+}
+static int create_wser_config(FILE **config_file)
+{
+	FILE *fp = fopen(".wser.conf","r");
+	if(fp){
+		/*don't change an existing file but load it */
+		*config_file = fp;
+		return 0;
+	}
+
+	/*create the file*/
+	fp = fopen(".wser.conf","w");
+	if(!fp) return -1;
+	fputs(
+		"#\t\tWSER configuration file\n"
+		"# line starting with # are comments\n"
+		"# cancel the beginning # in front of a parameter to enable it\n"
+		"#\n"
+		"################################################################\n\n"
+		"# path where the server will look for TLS certificates\n"
+		"CERT_PATH=/etc/letsencrypt/live/\n\n"
+		"# path where the server will write the logs\n"
+		"SERVER_LOG_PATH=.local/logs/server.log\n",
+		fp);	
+	fclose(fp);
+	return 0;
 }
