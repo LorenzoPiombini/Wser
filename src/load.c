@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <errno.h>
 #include <string.h>
 #include "load.h"
@@ -31,10 +32,10 @@ static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
 
-int load_resource(char *rpath, struct Content *cont)
+int load_resource(char *rpath, struct Content *cont, int gzip)
 {
 
-	if(strstr(rpath,"..")) return -1;
+	if(!rpath || !cont) return -1;
 
 	char *file_path = map_rpath(rpath);
 	if(!file_path) {
@@ -43,58 +44,68 @@ int load_resource(char *rpath, struct Content *cont)
 		return -1;
 	}
 
-	int fd = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
-	if(fd == -1){
+
+	int fd_parent = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
+	if(fd_parent == -1){
 		 return -1;
 	}
 
+	size_t s = strlen(file_path);
+	char gzipped[s+4];
+	memset(gzipped,0,s+4);
+	char gz[] = ".gz";
+	memcpy(gzipped,file_path,s);
+	memcpy(&gzipped[s],gz,3);
+
+	int fd = fd_parent;
 	char *part = file_path + 1;
 	for(;;){
 		char *slash = strchr(part,'/');
 		if (slash) *slash = '\0';
 
-		int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW;
+		int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK;
 		if(slash) flags |= O_DIRECTORY;
 
 		errno = 0;
 		int resource = openat(fd,part,flags);
 		if(resource == -1){
-			close(fd);
+			if(fd != fd_parent) close(fd);
+			close(fd_parent);
 			strncpy(cont->cnt_st,NOT_FOUND,strlen(NOT_FOUND)+1);
-			cont->size = strlen(NOT_FOUND) + 1;
+			cont->size = strlen(NOT_FOUND);
 			fprintf(stderr,"(%s): cannot open '%s'.\n",prog,rpath);
 			if(errno == ELOOP) fprintf(stderr,"they were trying to open a link\n");
 			return -1;
 		}
-
-		close(fd);
+		if(fd != fd_parent) close(fd);
 		fd = resource;
-		if(!slash) break;
+		if(!slash){
+			struct stat st;
+			if(fstat(fd, &st) < 0){
+				close(fd);
+				close(fd_parent);
+				return -1;
+			}
+
+			if(st.st_size > 1024 && gzip){
+				int fd_gz = openat(fd_parent,&gzipped[1],flags);
+				if(fd_gz == -1) break; /*regular file will be used*/ 
+				gzip = GZ_HEADER;
+				close(fd);
+				fd = fd_gz;
+			}
+			break;
+		}	
 		part = slash + 1;
 	}
-
-	if(lseek(fd,0,SEEK_END) == -1){
+	close(fd_parent);
+	struct stat st;
+	if(fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+			st.st_size < 0 || st.st_size > MAX_LOADABLE_FILE){
 		close(fd);
-		return -1;	
+		return -1;
 	}
-
-	off_t size = 0;
-	if((size = lseek(fd,0,SEEK_CUR)) == -1){
-		close(fd);
-		return -1;	
-	}
-
-	if(size < 0 || size > MAX_LOADABLE_FILE){
-		close(fd);
-		return -1;	
-	}
-
-	if(lseek(fd,0,SEEK_SET) == -1){
-		close(fd);
-		return -1;	
-	}
-
-	size_t length = (size_t)size;
+	size_t length = (size_t)st.st_size;
 	char *buf = cont->cnt_st;
 	char *allocated  = NULL;
 
@@ -109,44 +120,64 @@ int load_resource(char *rpath, struct Content *cont)
 		memset(buf,0,length+1);
 	}
 
-	ssize_t r = 0;
-	if((r = read(fd,buf,length)) < 0
-			|| (size_t)r < length){
-		fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,rpath);
-		if(allocated) free(allocated);
-		close(fd);
-		return -1;
-	}
+    size_t received = 0;
+    while(received < length){
+        ssize_t n = read(fd, buf + received, length - received);
+        if(n > 0){ 
+			received += (size_t)n;
+			continue; 
+		}
+        if(n < 0 && errno == EINTR) continue;
+        free(allocated);
+        close(fd);
+        return -1;
+    }
 
 	buf[length] = '\0';
 	close(fd);
 	cont->size = length;
 	if(allocated) cont->cnt_dy = buf;
+	if(gzip == GZ_HEADER) return GZ_HEADER;
 	return 0;
 }
 
 
+static int url_hex(unsigned char c)
+{
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
 static char *map_rpath(char *rpath)
 {
-	if(*rpath != '/') return NULL;
-
-	static char path[1024] = {0};
-	memset(path,0,1024);
-
-	size_t l = strlen(rpath);
-	size_t l_map = 1;
-	if (l_map == l){
-		if(strncmp("/",rpath,l_map) == 0){
-			size_t inx_l = strlen("/index.html");	
-			strncpy(path,"/index.html",inx_l);
-			return path;
-		} 
-		return NULL;
-	}
-
-	if(l >= sizeof(path)) return NULL;
-	strncpy(path,rpath,l);
-	return path;
+    if(*rpath != '/') return NULL;
+    static char path[1024];
+    size_t end = strcspn(rpath, "?#");
+	size_t j = 0;
+    for(size_t i = 0; i < end; ++i){
+        unsigned char c = rpath[i];
+        if(c == '%'){
+            if(end - i < 3) return NULL;
+            int high = url_hex(rpath[i+1]), low = url_hex(rpath[i+2]);
+            if(high < 0 || low < 0) return NULL;
+            c = (high << 4) | low;
+            i += 2;
+        }
+        if(c < 0x20 || c == 0x7f || c == '\\' || j + 1 >= sizeof(path)) return NULL;
+        path[j++] = c;
+    }
+    path[j] = 0;
+    /* Check decoded path components, including percent-encoded slashes. */
+    for(char *part = path + 1; *part;){
+        size_t n = strcspn(part, "/");
+        if((n == 1 && part[0] == '.') || (n == 2 && !memcmp(part, "..", 2))) return NULL;
+        part += n;
+        if(*part) ++part;
+    }
+    if(j == 1) memcpy(path, "/index.html", sizeof("/index.html"));
+    return path;
 }
 
 void clear_content(struct Content *cont){

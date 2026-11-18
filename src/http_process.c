@@ -48,7 +48,7 @@ int HTTP_work_process(int data_sock,int secure)
 	if(!secure){
 		int work_proc_data_sock = -1;
 
-		pid_t work_proc_pid = fork();
+		pid_t work_proc_pid = server_fork();
 
 		if(work_proc_pid == -1){
 			/*Parent*/
@@ -61,7 +61,7 @@ int HTTP_work_process(int data_sock,int secure)
 			/* start DB handle process */	
 			if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
 				fprintf(stderr,"cannot start Data base.\n");
-				kill(getppid(),SIGINT);
+				signal_server_parent(SIGINT);
 				exit(-1);
 			}
 
@@ -82,7 +82,7 @@ int HTTP_work_process(int data_sock,int secure)
 
 	if(start_monitor(data_sock) == -1){
 		fprintf(stderr,"(%s): cannot start HTTP process correctly\n",prog);
-		kill(getppid(),SIGINT);
+		signal_server_parent(SIGINT);
 		exit(-1);
 	}
 
@@ -121,7 +121,7 @@ int HTTP_work_process(int data_sock,int secure)
 	for(;;){
 
 		if((nfds = monitor_events(-1)) == -1) goto teardown;
-		if(nfds == EINTR) continue;
+		if(nfds == MONITOR_INTERRUPTED) continue;
 
 		int i;
 		for(i = 0; i < nfds; i++){
@@ -161,7 +161,16 @@ int HTTP_work_process(int data_sock,int secure)
 
 			memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
 
-			pid_t child = fork();
+			int child_slot;
+            for(child_slot = 0; child_slot < 100; ++child_slot){
+                if(proc_list_HTTP[child_slot].p <= 0 || !server_child_running(proc_list_HTTP[child_slot].p)) break;
+            }
+            if(child_slot == 100){
+                close(cli_sock);
+                close(sock);
+                continue; /* at capacity: do not crash the service or leak a child */
+            }
+            pid_t child = server_fork();
 			if(child == 0){
 				/*child do not need these */
 				stop_listening(sock);
@@ -199,12 +208,13 @@ loop:
 				int nfd =-1,j;
 				for(;;){
 					if((nfd = monitor_events(-1)) == -1) goto teardown;
-					if(nfd == EINTR){
+					if(nfd == MONITOR_INTERRUPTED){
 						continue; /*change with goto teardwn in prod*/
 					}
 
 					for(j = 0; j < nfd; j++){
 						int r = http_step(events[j].data.fd,&req);
+                        if(r == -1) goto teardown;
 						if(r == EAGAIN || r == EWOULDBLOCK) break;
 #ifdef OWN_DB
 						if(!secure){
@@ -238,32 +248,23 @@ teardown:
 				stop_listening(cli_sock);
 				stop_listening(sock);
 
-				int i;
-				for(i = 0; i < 100;i++){
-					if(proc_list_HTTP[i].p == 0 || proc_list_HTTP[i].p == -1){
-						proc_list_HTTP[i].p = child;
-						proc_list_HTTP[i].t = time(NULL);
-						break;
-					}
-				}
-
-				assert(i < 100);
-				/*wait on the children*/
+            proc_list_HTTP[child_slot].p = child;
+            proc_list_HTTP[child_slot].t = time(NULL);
+            int i;
+            /*wait on the children*/
 				for(i = 0; i < 100;i++){
 					if(proc_list_HTTP[i].p == 0 || proc_list_HTTP[i].p == -1)
 						continue;
 
 					errno = 0;
-					if(kill(proc_list_HTTP[i].p,0) == -1 && errno == ESRCH){
+					if(!server_child_running(proc_list_HTTP[i].p)){
 						proc_list_HTTP[i].p = -1;
 						proc_list_HTTP[i].t = 0;
 						continue;
 					}
 
 					if(proc_list_HTTP[i].t > 0 && ((time(NULL) - proc_list_HTTP[i].t ) > (time_t) TIME_OUT)){
-						if(kill(proc_list_HTTP[i].p,SIGKILL) == 0){
-							proc_list_HTTP[i].p = -1;
-							proc_list_HTTP[i].t = 0;
+						if(signal_server_process(proc_list_HTTP[i].p,SIGKILL) == 0){
 							continue;
 						}
 					}
@@ -297,18 +298,20 @@ static int http_step(int sock,struct Request *req)
 static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock)
 {
 
-	if(result_of_http_step == BAD_REQ) goto bad_request;
-
 	struct Content cont = {0};
 	struct Response res = {0};
+
+	if(result_of_http_step == BAD_REQ) goto bad_request;
 	switch(req->method){
 		case GET:
+        case HEAD:
 			if(secure){
 				if(strstr(req->resource,AUTO_CERT_RENEWAL)){
 					/*load the file, and send it*/
-					if(load_resource(req->resource,&cont) == -1){
+					int r = 0;
+					if((r = load_resource(req->resource,&cont,0)) == -1){
 						/*send not found response*/
-						if(generate_response(&res,404,&cont,req) == -1) break;
+						if(generate_response(&res,404,&cont,req,0) == -1) break;
 
 						int w = 0;
 						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -339,7 +342,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 					}
 
 					/*send 200 response*/
-					if(generate_response(&res,OK,&cont,req) == -1) {
+					if(generate_response(&res,OK,&cont,req,0) == -1) {
 						/*TODO: server errror*/
 						clear_response(&res);
 						clear_content(&cont);
@@ -358,7 +361,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							break;
 						}	
 						if(ws){
-							kill(ssl_proc,SIGHUP);
+							signal_server_process(ssl_proc,SIGHUP);
 							clear_response(&res);
 							return 0;
 						}
@@ -366,12 +369,12 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 						return -1;
 					}
 
-					kill(ssl_proc,SIGHUP);
+					signal_server_process(ssl_proc,SIGHUP);
 					clear_response(&res);
 					return 0;
 				}else{
 					/*send 301 response*/
-					if(generate_response(&res,301,NULL,req) == -1) break;
+					if(generate_response(&res,301,NULL,req,0) == -1) break;
 
 					int w = 0;
 					if((w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -403,13 +406,20 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 				break;
 			}
 			/* Load content */	
-			if((strstr(req->resource,".js")
+			if(
+#ifdef OWN_DB
+                    (strstr(req->resource,".js")
 						|| strstr(req->resource,".html")
 						|| strstr(req->resource,".css")
-						|| (strlen(req->resource) == 1 && (strncmp(req->resource,"/",1) == 0)))){
-				if(load_resource(req->resource,&cont) == -1){
+						|| (strlen(req->resource) == 1 && (strncmp(req->resource,"/",1) == 0)))
+#else
+                    1
+#endif
+            ){
+				int r = 0;
+				if((r=load_resource(req->resource,&cont,0)) == -1){
 					/*send not found response*/
-					if(generate_response(&res,404,&cont,req) == -1) break;
+					if(generate_response(&res,404,&cont,req,0) == -1) break;
 
 					int w = 0;
 					if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -447,7 +457,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 			}
 
 			/*send 200 response*/
-			if(generate_response(&res,OK,&cont,req) == -1) {
+			if(generate_response(&res,OK,&cont,req,0) == -1) {
 				/*TODO: server errror*/
 				clear_content(&cont);
 				clear_response(&res);
@@ -480,9 +490,10 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 				if(secure){
 					if(strstr(req->resource,AUTO_CERT_RENEWAL)){
 						/*load the file, and send it*/
-						if(load_resource(req->resource,&cont) == -1){
+						int r = 0;
+						if((r=load_resource(req->resource,&cont,0)) == -1){
 							/*send not found response*/
-							if(generate_response(&res,404,&cont,req) == -1) break;
+							if(generate_response(&res,404,&cont,req,0) == -1) break;
 
 							int w = 0;
 							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -513,7 +524,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 						}
 
 						/*send 200 response*/
-						if(generate_response(&res,OK,&cont,req) == -1) {
+						if(generate_response(&res,OK,&cont,req,0) == -1) {
 							/*TODO: server errror*/
 							clear_response(&res);
 							clear_content(&cont);
@@ -532,7 +543,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 								break;
 							}	
 							if(ws){
-								kill(ssl_proc,SIGHUP);
+								signal_server_process(ssl_proc,SIGHUP);
 								clear_response(&res);
 								return 0;
 							}
@@ -540,12 +551,12 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							return -1;
 						}
 
-						kill(ssl_proc,SIGHUP);
+						signal_server_process(ssl_proc,SIGHUP);
 						clear_response(&res);
 						return 0;
 					}else{
 						/*send 301 response*/
-						if(generate_response(&res,301,NULL,req) == -1) break;
+						if(generate_response(&res,301,NULL,req,0) == -1) break;
 
 						int w = 0;
 						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -583,7 +594,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 
 
 				/*send a response to the options request*/
-				if(generate_response(&res,200,NULL,req) == -1) break;
+				if(generate_response(&res,200,NULL,req,0) == -1) break;
 
 				int w = 0;
 				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -617,9 +628,10 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 				if(secure){
 					if(strstr(req->resource,AUTO_CERT_RENEWAL)){
 						/*load the file, and send it*/
-						if(load_resource(req->resource,&cont) == -1){
+						int r =0;
+						if((r=load_resource(req->resource,&cont,0)) == -1){
 							/*send not found response*/
-							if(generate_response(&res,404,&cont,req) == -1) break;
+							if(generate_response(&res,404,&cont,req,0) == -1) break;
 
 							int w = 0;
 							if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -650,7 +662,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 						}
 
 						/*send 200 response*/
-						if(generate_response(&res,OK,&cont,req) == -1) {
+						if(generate_response(&res,OK,&cont,req,0) == -1) {
 							/*TODO: server errror*/
 							clear_response(&res);
 							clear_content(&cont);
@@ -669,7 +681,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 								break;
 							}	
 							if(ws){
-								kill(ssl_proc,SIGHUP);
+								signal_server_process(ssl_proc,SIGHUP);
 								clear_response(&res);
 								return 0;
 							}
@@ -677,12 +689,12 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							return -1;
 						}
 
-						kill(ssl_proc,SIGHUP);
+						signal_server_process(ssl_proc,SIGHUP);
 						clear_response(&res);
 						return 0;
 					}else{
 						/*send 301 response*/
-						if(generate_response(&res,301,NULL,req) == -1) break;
+						if(generate_response(&res,301,NULL,req,0) == -1) break;
 
 						int w = 0;
 						if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -713,7 +725,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 					}
 					break;
 				}
-				if(generate_response(&res,400,NULL,req) == -1) break;
+				if(generate_response(&res,400,NULL,req,0) == -1) break;
 
 				int w = 0;
 				if(( w = write_cli_sock(cli_sock,&res)) == -1) break;
@@ -739,7 +751,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 
 bad_request:
 	/*send a bed request response*/
-	if(generate_response(&res,400,NULL,req) == -1) return -1;
+	if(generate_response(&res,400,NULL,req,0) == -1) return -1;
 
 	int w = 0;
 	if(( w = write_cli_sock(cli_sock,&res)) == -1) return -1;

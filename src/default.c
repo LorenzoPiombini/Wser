@@ -10,9 +10,7 @@
 #include "default.h"
 
 
-char **domains = NULL;
 char dir[PATH_MAX] = {0};
-char certificates_path[PATH_MAX] = {0};
 static char prog[] = "wser";
 static int no_su_setting();
 static int create_wser_config();

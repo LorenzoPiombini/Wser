@@ -151,7 +151,7 @@ failed:
 	return -1;
 }
 
-void *free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain)
+void free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain)
 {
 	for(int i = 0; i < active_domain; ++i){
 		SSL_CTX_free((*ctxs)[i]);
@@ -278,7 +278,7 @@ int connect_to_socket(int port)
 	struct sockaddr_in addr = {0};
 
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(socket_nr); 
+	addr.sin_port = htons(port); 
 	addr.sin_addr.s_addr = INADDR_ANY;
 	errno = 0;
 
@@ -287,7 +287,7 @@ int connect_to_socket(int port)
 
 	int result = connect(sock_fd,(const struct sockaddr*) &addr,sizeof(addr));
 	if(result == -1){
-		fprintf(stderr,"failed to connect to port '%d', %s\n",socket_nr,strerror(errno));
+		fprintf(stderr,"failed to connect to port '%d', %s\n",port,strerror(errno));
 		return -1;
 	}
 	return sock_fd;

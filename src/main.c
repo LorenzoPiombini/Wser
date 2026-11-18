@@ -223,9 +223,8 @@ int main(int argc, char **argv)
         if(con80 > 2) close(con80);
 
 		/*start signal handle for HTTP process*/
-		http_sock = data_sock;
 		if(handle_sig_http_process() == -1)
-
+			exit(1);
 
 		int data_sock = -1;
 		if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK,INT_PROC_SOCK_PORT_EIGTHY_CERT_REN)) == -1){
@@ -234,10 +233,7 @@ int main(int argc, char **argv)
 			return -1;
 		}
 
-		/*start signal handle for HTTP process*/
 		http_sock = data_sock;
-		if(handle_sig_http_process() == -1)
-			exit(1);
 
 		HTTP_work_process(data_sock,secure);
 		if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);

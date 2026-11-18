@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
+#include <strings.h>
 #include <time.h>
 #include <assert.h>
 #include "load.h"
@@ -28,6 +29,7 @@ struct p_info proc_list[100] = {0};
 #define TIME_OUT 300 /*5 minutes*/
 #define EIGHTkib_limit 8192
 
+SSL_CTX **ctxs = NULL;
 
 static char prog[] = "wser";
 
@@ -47,13 +49,15 @@ static int handle_ssl_steps(struct Connection_data *cd,
 							SSL_CTX **ctx);
 
 
-int SSL_work_process(int data_sock)
+static int sni_callback(SSL *ssl, int *ad, void *args);
+
+int SSL_work_process(int data_sock, uint64_t domains)
 {
 
 #ifdef OWN_DB
 	int work_proc_data_sock = -1;
 
-	pid_t work_proc_pid = fork();
+	pid_t work_proc_pid = server_fork();
 
 	if(work_proc_pid == -1){
 		/*Parent*/
@@ -66,7 +70,7 @@ int SSL_work_process(int data_sock)
 		/* start DB handle process */	
 		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
 			fprintf(stderr,"cannot start Data base.\n");
-			kill(getppid(),SIGINT);
+			signal_server_parent(SIGINT);
 		 	exit(-1);
 		}
 
@@ -86,16 +90,23 @@ int SSL_work_process(int data_sock)
 
 	if(start_monitor(data_sock) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
-		kill(getppid(),SIGINT);
+		signal_server_parent(SIGINT);
 		exit(-1);
 	}
 
-	if(init_SSL(&ctx) == -1){
+	char **d = (char **)(domains & 0x0000FFFFFFFFFFFF);
+	int active_domains = (int)(domains >> 48);
+	if(init_SSL(d,active_domains,&ctxs) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		stop_monitor();
-		kill(getppid(),SIGINT);
+		signal_server_parent(SIGINT);
 		exit(-1);
 	}
+
+	struct SNI_config config = {(char**)(domains & 0x0000FFFFFFFFFFFF),ctxs,active_domains};
+	/*register the SNI*/
+	SSL_CTX_set_tlsext_servername_callback(ctxs[0], sni_callback);
+	SSL_CTX_set_tlsext_servername_arg(ctxs[0],&config);
 
 	/*setting up to receiving file descriptor from another process*/
 	int            data, cli_sock;
@@ -132,20 +143,24 @@ int SSL_work_process(int data_sock)
 	for(;;){
 		
 		if((nfds = monitor_events(-1)) == -1) goto teardown_a;
-		if(nfds == EINTR){
+		if(nfds == MONITOR_INTERRUPTED){
 			if(reload_certificate){
 				reload_certificate = 0;
-				SSL_CTX_free(ctx);
-				ctx = NULL;
-				if(init_SSL(&ctx) == -1){
+				free_SSL_ctxs(&ctxs,active_domains);
+				if(init_SSL(d,active_domains,&ctxs) == -1){
 					fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 					stop_monitor();
 #ifdef OWN_DB		
-					kill(db_proc,SIGINT);
+					signal_server_process(db_proc,SIGINT);
 #endif
-					kill(getppid(),SIGINT);
+					signal_server_parent(SIGINT);
 					exit(-1);
 				}
+	
+				config.ctxs = ctxs;
+				/*register the SNI*/
+				SSL_CTX_set_tlsext_servername_callback(ctxs[0], sni_callback);
+				SSL_CTX_set_tlsext_servername_arg(ctxs[0],&config);
 				continue;
 			}
 			continue;/*you might want to change this to got teardown*/
@@ -189,7 +204,16 @@ int SSL_work_process(int data_sock)
 
 			memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
 
-			pid_t child = fork();
+			int child_slot;
+            for(child_slot = 0; child_slot < 100; ++child_slot){
+                if(proc_list[child_slot].p <= 0 || !server_child_running(proc_list[child_slot].p)) break;
+            }
+            if(child_slot == 100){
+                close(cli_sock);
+                close(sock);
+                continue; /* at capacity: do not crash the service or leak a child */
+            }
+            pid_t child = server_fork();
 			if(child == 0){
 				/*clear ssl que error*/
 				ERR_clear_error(); 
@@ -206,10 +230,17 @@ int SSL_work_process(int data_sock)
 				}
 
 				struct Request req = {0};
-				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctx);
+				int r = handle_ssl_steps(cds,cli_sock,&req,&ssl_cli,&ctxs[0]);
 
-				if(r == -1)
-					goto teardown_a;
+				if(r == -1) goto teardown_a;
+                if(r == BAD_REQ){
+                    struct Response res = {0};
+                    if(generate_response(&res, 400, NULL, &req,0) == -1) goto teardown_a;
+                    int w = write_cli_SSL(cli_sock, &res, cds);
+                    clear_response(&res);
+                    clear_request(&req);
+                    if(w != SSL_WRITE_E) goto teardown_a;
+                }
 			
 				if(r == 0 || r == 2){
 #ifdef OWN_DB
@@ -230,13 +261,13 @@ loop:
 				for(;;){
 					/*start monitoring event with a timer of 5 seconds*/
 					if((nfds = monitor_events(5000)) == -1) goto teardown;
-					if(nfds == EINTR){
+					if(nfds == MONITOR_INTERRUPTED){
 						continue; /*change with goto teardwn in prod*/
 					}
 	
 				
 					for(j = 0; j < nfds; j++){
-						int r = handle_ssl_steps(cds,events[j].data.fd,&req,&ssl_cli,&ctx);
+						int r = handle_ssl_steps(cds,events[j].data.fd,&req,&ssl_cli,&ctxs[0]);
 
 						if(r == -1){
 							/*shutdown*/
@@ -244,26 +275,10 @@ loop:
 						}
 
 						switch(r){
-						case SSL_READ_E:
-						case SSL_WRITE_E:
-						case HANDSHAKE:
-						{		
-							r = handle_ssl_steps(cds,events[j].data.fd,&req,&ssl_cli,&ctx);
-							if(r == 0 || r == 2){
-#ifdef OWN_DB
-								if(process_request(&req,events[j].data.fd,db_sock)== 1)
-#else 
-								if(process_request(&req,events[j].data.fd) == 1)
-#endif
-								{
-									clear_request(&req);
-									continue;
-								}
-								clear_request(&req);
-								goto teardown;
-							}
-							break;
-						}
+                        case SSL_READ_E:
+                        case SSL_WRITE_E:
+                        case HANDSHAKE:
+                            break; /* resume only after the requested readiness event */
 						case 2:
 						case 0:
 						{
@@ -283,7 +298,7 @@ loop:
 						{
 							struct Response res = {0};
 							/*send a bad request response*/
-							if(generate_response(&res,400,NULL,&req) == -1) {
+							if(generate_response(&res,400,NULL,&req,0) == -1) {
 								clear_response(&res);
 								goto teardown;
 							}
@@ -296,13 +311,13 @@ loop:
 
 							if(w == SSL_WRITE_E){
 								clear_response(&res);
-								return 1;
-								goto teardown;
+								break;
 							}
 							clear_response(&res);
 							goto teardown;
 						}
-						case CLEAN_TEARDOWN:
+						case WRITE_OK:
+                        case CLEAN_TEARDOWN:
 							goto teardown;
 						case SSL_CLOSE:
 						case SSL_SET_E:
@@ -312,7 +327,7 @@ loop:
 						stop_monitor();
 						clear_request(&req);
 						clean_connecion_data(cds,events[j].data.fd);
-						SSL_CTX_free(ctx);
+						free_SSL_ctxs(&ctxs,active_domains);
 #if OWN_DB
 						close(db_sock);
 #endif
@@ -323,15 +338,13 @@ loop:
 teardown_a:
 			clean_connecion_data(cds,cli_sock);
 			remove_socket_from_monitor(cli_sock);
-			SSL_CTX_free(ctx);
-			ctx = NULL;
+			free_SSL_ctxs(&ctxs,active_domains);
 			stop_monitor();
 			exit(0);
 teardown:
 			remove_socket_from_monitor(cli_sock);
 			clean_connecion_data(cds,events[j].data.fd);
-			SSL_CTX_free(ctx);
-			ctx = NULL;
+			free_SSL_ctxs(&ctxs,active_domains);
 			stop_monitor();
 #if OWN_DB
 			close(db_sock);
@@ -348,32 +361,23 @@ teardown:
 			stop_listening(cli_sock);
 			stop_listening(sock);
 
-			int i;
-			for(i = 0; i < 100;i++){
-				if(proc_list[i].p == 0 || proc_list[i].p == -1){
-					proc_list[i].p = child;
-					proc_list[i].t = time(NULL);
-					break;
-				}
-			}
-						
-			assert(i < 100);
-			/*wait on the children*/
+            proc_list[child_slot].p = child;
+            proc_list[child_slot].t = time(NULL);
+            int i;
+            /*wait on the children*/
 			for(i = 0; i < 100;i++){
 				if(proc_list[i].p == 0 || proc_list[i].p == -1)
 					continue;
 
 				errno = 0;
-				if(kill(proc_list[i].p,0) == -1 && errno == ESRCH){
+				if(!server_child_running(proc_list[i].p)){
 					proc_list[i].p = -1;
 					proc_list[i].t = 0;
 					continue;
 				}
 
 				if(proc_list[i].t > 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
-					if(kill(proc_list[i].p,SIGKILL) == 0){
-						proc_list[i].p = -1;
-						proc_list[i].t = 0;
+					if(signal_server_process(proc_list[i].p,SIGKILL) == 0){
 						continue;
 					}
 				}
@@ -381,379 +385,42 @@ teardown:
 		}
 		}
 	}
-	SSL_CTX_free(ctx);
-	ctx = NULL;
+	free_SSL_ctxs(&ctxs,active_domains);
 	clean_connecion_data(cds,-1);
 	return 0;
 }
 
-static int handle_ssl_steps(struct Connection_data *cd, 
-		int cli_sock,
-		struct Request *req,
-		SSL **ssl,
-		SSL_CTX **ctx)
+static int handle_ssl_steps(struct Connection_data *cd, int cli_sock,
+        struct Request *req, SSL **ssl, SSL_CTX **ctx)
 {
-	int i;
-	for(i = 0; i < MAX_CON_DAT_ARR; i++){
-		if(cd[i].fd == cli_sock) break;
-	}
-
-	if(i >= MAX_CON_DAT_ARR && cli_sock != -1){
-		if((*ssl = SSL_new(*ctx)) == NULL) {
-			fprintf(stderr,"error creating SSL handle for new connection.\n");
-			return SSL_HD_F;
-		}
-
-		if(!SSL_set_fd(*ssl,cli_sock)) {
-			fprintf(stderr,"error setting socket to SSL context.\n");
-			SSL_free(*ssl);
-			*ssl = NULL;
-			return SSL_SET_E;		
-		}		
-
-
-		/*try handshake with the client*/	
-		int hs_res = 0;
-		if((hs_res = SSL_accept(*ssl)) <= 0) {
-			int err = SSL_get_error(*ssl,hs_res);
-			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				int i;
-				for(i = 0; i < MAX_CON_DAT_ARR;i++){
-					if(cd[i].fd == 0 || cd[i].fd == -1){
-						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
-						cd[i].retry_handshake = SSL_accept;
-						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-							/*TODO*/
-						}
-						break;
-					}
-				}
-				if(i >= MAX_CON_DAT_ARR){
-					fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
-					return -1;
-				}
-				return HANDSHAKE;		
-			}else {
-				fprintf(stderr,"the error happens when trying handshake first time\n");
-				ERR_print_errors_fp(stderr);
-				int i;
-				for(i = 0; i < MAX_CON_DAT_ARR;i++){
-					if(cd[i].fd == 0 || cd[i].fd == -1){
-						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
-						cd[i].retry_handshake = NULL;
-						cd[i].retry_read = NULL;
-						cd[i].retry_write = NULL;
-						cd[i].close_notify = SSL_shutdown;
-						if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-							/*TODO*/
-						}
-						break;
-					}
-				}
-				return -1;
-			}
-		}
-
-		size_t bread = 0;
-		int result = 0;
-		ssize_t byte_to_read = BASE;
-
-		while((result = SSL_read_ex(*ssl,&req->req[req->size],byte_to_read,&bread)) == 0 || bread == BASE) {
-			if(byte_to_read == (ssize_t)bread){
-				fprintf(stderr,"(%s): request is too big! refactor? %s:%d.\n",prog,__FILE__,__LINE__);
-				return -1;
-			}
-
-			int err = SSL_get_error(*ssl,result);
-			if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-				if(bread > 0){
-					req->size += bread;
-					assert(req->size < BASE);
-				}
-				int i;
-				for(i = 0; i < MAX_CON_DAT_ARR;i++){
-					if(cd[i].fd == 0 || cd[i].fd == -1){
-						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
-						cd[i].retry_read = SSL_read_ex;
-						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-							/*TODO*/
-						}
-						break;
-					}
-				}
-
-				if(i >= MAX_CON_DAT_ARR){
-					fprintf(stdout,"yuo have to make MAX_CON_DAT_ARR bigger");
-					return -1;
-				}
-
-				return SSL_READ_E; 
-			}else if(err == SSL_ERROR_NONE){
-				/*TODO: here we need to allocate memory*/		
-				if(bread == BASE)
-					fprintf(stderr,"(%s): NO ERROR FOR SSL READING, but req too big,%s:%d\n",prog,__FILE__,__LINE__);
-			}else {
-				int i;
-				for(i = 0; i < MAX_CON_DAT_ARR;i++){
-					if(cd[i].fd == 0 || cd[i].fd == -1){
-						cd[i].fd = cli_sock;
-						cd[i].ssl = *ssl;
-						cd[i].retry_handshake = NULL;
-						cd[i].retry_read = NULL;
-						cd[i].retry_write = NULL;
-						cd[i].close_notify = SSL_shutdown;
-						if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-							/*TODO*/
-						}
-						break;
-					}
-				}
-				return SSL_CLOSE;
-			}
-		}
-
-		for(i = 0; i < MAX_CON_DAT_ARR;i++){
-			if(cd[i].fd == 0 || cd[i].fd == -1){
-				cd[i].fd = cli_sock;
-				cd[i].ssl = *ssl;
-				cd[i].retry_read = SSL_read_ex;
-				if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-					/*TODO*/
-				}
-				break;
-			}
-		}
-
-		/*We know, by design req->req will be max 2048 bytes
-		 * we do not use strlen() it could cause SIGSEGV */
-
-		int j;
-		char *p = &req->req[0];
-		for(j=0;j < BASE && *p; j++, p++);
-
-		assert((j+req->size) < BASE);
-		/*
-		 * if this assertion ever fails, you should considering adding
-		 * memory allocations, or refactor the code;
-		 * */
-
-		if(req->size < j) req->size += (size_t)j;
-
-		int is_body_missing = 0;
-		if((is_body_missing = handle_request(req)) == BAD_REQ){
-			if(req->method == -1) return BAD_REQ;
-			if(req->size < (ssize_t)BASE) return BAD_REQ;
-		}
-
-		if(is_body_missing){
-			cd[i].retry_handshake = NULL;
-			cd[i].retry_read = SSL_read_ex;
-			return SSL_READ_E;
-		}
-		return 0;
-	}else{
-		if(cd[i].retry_handshake){
-			/*retry handshake*/
-			int r = 0;
-			if((r = cd[i].retry_handshake(cd[i].ssl)) <= 0){ 
-				int err = SSL_get_error(cd[i].ssl,r);
-				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE){
-					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-						/*TODO*/
-					}
-					return HANDSHAKE;	
-				}else{
-					fprintf(stderr,"the error happens when retrying handshake\n");
-					ERR_print_errors_fp(stderr);
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
-					cd[i].retry_write = NULL;
-					cd[i].close_notify = SSL_shutdown;
-					if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-						/*TODO*/
-					}
-					return SSL_CLOSE;
-				}
-			}
-
-			cd[i].retry_handshake = NULL;
-			size_t bread = 0;
-			int result = 0;
-			ssize_t byte_to_read = BASE;
-
-			while((result = SSL_read_ex(*ssl,&req->req[req->size],byte_to_read,&bread)) == 0 || bread == BASE) {
-				if(byte_to_read == (ssize_t)bread){
-					fprintf(stderr,"(%s): request is too big! refactor? %s:%d.\n",prog,__FILE__,__LINE__);
-					return -1;
-				}
-
-				int err = SSL_get_error(*ssl,result);
-				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-					if(bread > 0){
-						req->size += bread;
-						assert(req->size < BASE);
-					}
-					cd[i].retry_read = SSL_read_ex;
-					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-						/*TODO*/
-					}
-					return SSL_READ_E; 
-				}else if(err == SSL_ERROR_NONE){
-					/*TODO: here we need to allocate memory*/		
-					if(bread == BASE)
-						fprintf(stderr,"(%s): NO ERROR FOR SSL READING, but req too big,%s:%d\n",prog,__FILE__,__LINE__);
-					return -1;
-				}else {
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
-					cd[i].retry_write = NULL;
-					cd[i].close_notify = SSL_shutdown;
-					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-						/*TODO*/
-					}
-					return SSL_CLOSE;
-				}
-			}
-
-
-			/*We know, by design req->req will be max 2048 bytes
-			 * we do not use strlen() it could cause SIGSEGV */
-
-			int j;
-			char *p = &req->req[0];
-			for(j=0;j < BASE && *p; j++, p++);
-
-			assert((j+req->size) < BASE);
-			/*
-			 * if this assertion ever fails, you should considering adding
-			 * memory allocations, or refactor the code;
-			 * */
-
-			if(req->size < j) req->size += (size_t)j;
-
-			int is_body_missing = 0;
-			if((is_body_missing = handle_request(req)) == BAD_REQ){
-				if(req->method == -1) return BAD_REQ;
-				if(req->size < (ssize_t)BASE) return BAD_REQ;
-			}
-
-			if(is_body_missing) {
-				cd[i].retry_read = SSL_read_ex;
-				return SSL_READ_E;
-			}
-			return 0;
-		}
-
-		if(cd[i].retry_read){ 
-			if(req->size >= BASE) {
-				fprintf(stderr,"(%s): retrying reading but req too big,%s:%d\n",prog,__FILE__,__LINE__);
-				return -1;
-			}
-
-			int result;
-			size_t bread = 0;
-			size_t read_at_most =  BASE - req->size;
-
-			/**/
-			while((result = cd[i].retry_read(cd[i].ssl,&req->req[req->size],read_at_most,&bread)) == 0){
-				int err = SSL_get_error(*ssl,result);
-				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-					if(bread > 0){
-						req->size += bread;
-						assert(req->size < BASE);
-					}
-					cd[i].retry_read = SSL_read_ex;
-					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-						/*TODO*/
-					}
-					return SSL_READ_E; 
-				}else if(err == SSL_ERROR_NONE){
-					/*TODO: here we need to allocate memory*/		
-					if(bread == BASE)
-						fprintf(stderr,"(%s): NO ERROR FOR SSL READING, but req too big,%s:%d\n",prog,__FILE__,__LINE__);
-					return -1;
-				}else {
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
-					cd[i].retry_write = NULL;
-					cd[i].close_notify = SSL_shutdown;
-					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-						/*TODO*/
-					}
-					return SSL_CLOSE;
-				}
-			}
-
-
-			/*
-			 * We know, by design req->req will be max 2048 bytes
-			 * we do not use strlen() it could cause SIGSEGV */
-
-			int j;
-			char *p = &req->req[0];
-			for(j=0;j < BASE && *p; j++, p++);
-
-			assert((j+req->size) < BASE);
-			/*
-			 * if this assertion ever fails, you should considering adding
-			 * memory allocations, or refactor the code;
-			 * */
-
-			if(req->size < j) req->size += (size_t)j;
-
-			int is_body_missing = 0;
-			if((is_body_missing = handle_request(req)) == BAD_REQ){
-				if(req->method == -1) return BAD_REQ;
-				if(req->size < (ssize_t)BASE) return BAD_REQ;
-			}
-
-			if(is_body_missing) {
-				cd[i].retry_read = SSL_read_ex;
-				return SSL_READ_E;
-			}
-			cd[i].retry_read = NULL;
-			return 2;
-		}
-
-		if(cd[i].retry_write){
-			int result;
-			size_t bwritten = 0;
-			if((result = cd[i].retry_write(cd[i].ssl,
-							cd[i].buf != NULL ? cd[i].buf : cd[i].res.header_str,
-							cd[i].buf != NULL ? strlen(cd[i].buf) : strlen(cd[i].res.header_str),
-							&bwritten)) == 0){
-				int err = SSL_get_error(cd[i].ssl,result);
-				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-					if(modify_monitor_event(cli_sock,err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1){
-						/*TODO*/
-					}
-					return SSL_WRITE_E;
-				}else{
-					ERR_print_errors_fp(stderr);
-					cd[i].retry_handshake = NULL;
-					cd[i].retry_read = NULL;
-					cd[i].retry_write = NULL;
-					cd[i].close_notify = SSL_shutdown;
-					if(modify_monitor_event(cli_sock,EPOLLIN | EPOLLOUT) == -1){
-						/*TODO*/
-					}
-					return SSL_CLOSE;
-				}
-			}
-			return WRITE_OK;
-		}
-		
-		if(cd[i].close_notify){
-			if(SSL_shutdown(cd[i].ssl) != 1)
-				return SSL_CLOSE;
-			else 
-				return CLEAN_TEARDOWN;
-		}
-	}
-	return 0;
+    int i;
+    for(i = 0; i < MAX_CON_DAT_ARR; ++i) if(cd[i].fd == cli_sock) break;
+    if(i == MAX_CON_DAT_ARR){
+        if(cli_sock < 0) return -1;
+        for(i = 0; i < MAX_CON_DAT_ARR; ++i) if(cd[i].fd <= 0) break;
+        if(i == MAX_CON_DAT_ARR) return -1;
+        SSL *session = SSL_new(*ctx);
+        if(!session) return -1;
+        if(!SSL_set_fd(session, cli_sock)){ SSL_free(session); return -1; }
+        cd[i].fd = cli_sock;
+        cd[i].ssl = session;
+        *ssl = session;
+    }
+    if(cd[i].retry_write){
+        int r = write_cli_SSL(cli_sock, NULL, cd);
+        return r == 0 ? WRITE_OK : r;
+    }
+    if(cd[i].close_notify){
+        int r = SSL_shutdown(cd[i].ssl);
+        if(r == 1) return CLEAN_TEARDOWN;
+        if(r < 0){
+            int err = SSL_get_error(cd[i].ssl, r);
+            if(err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) return -1;
+            if(modify_monitor_event(cli_sock, err == SSL_ERROR_WANT_WRITE ? EPOLLOUT : EPOLLIN) == -1) return -1;
+        }
+        return SSL_CLOSE;
+    }
+    return read_cli_sock_SSL(cli_sock, req, cd);
 }
 
 #if OWN_DB
@@ -764,6 +431,7 @@ static int process_request(struct Request *req, int cli_sock)
 {
 	switch(req->method){
 	case GET:
+    case HEAD:
 	{
 		struct Response res = {0};
 		struct Content cont = {0};
@@ -779,9 +447,9 @@ static int process_request(struct Request *req, int cli_sock)
 		if(load_resource_db(req,&cont,work_proc_data_sock) == 400){
 				/*send not found response*/
 				if(cont.cnt_st[0] != '\0'){
-					if(generate_response(&res,404,&cont,req) == -1) break;
+					if(generate_response(&res,404,&cont,req,0) == -1) break;
 				}else{
-					if(generate_response(&res,404,NULL,req) == -1) break;
+					if(generate_response(&res,404,NULL,req,0) == -1) break;
 				}
 
 				int w = 0;
@@ -796,7 +464,7 @@ static int process_request(struct Request *req, int cli_sock)
 				return 0;
 		}
 		/*send 200 response*/
-		if(generate_response(&res,200,&cont,req) == -1) {
+		if(generate_response(&res,200,&cont,req,0) == -1) {
 			clear_content(&cont);
 			clear_response(&res);
 			return 0;
@@ -819,9 +487,10 @@ static int process_request(struct Request *req, int cli_sock)
 		} else{
 
 #endif
-			if(load_resource(req->resource,&cont) == -1){
+			int r = 0;
+			if((r=load_resource(req->resource,&cont,0)) == -1){
 				/*send not found response*/
-				if(generate_response(&res,404,NULL,req) == -1) break;
+				if(generate_response(&res,404,NULL,req,1) == -1) break;
 
 				int w = 0;
 				if((w = write_cli_SSL(cli_sock,&res,cds)) == -1) break;
@@ -836,7 +505,7 @@ static int process_request(struct Request *req, int cli_sock)
 			}
 
 			/*send 200 response*/
-			if(generate_response(&res,OK,&cont,req) == -1) {
+			if(generate_response(&res,OK,&cont,req,1) == -1) {
 				clear_content(&cont);
 				clear_response(&res);
 				return 0;
@@ -868,7 +537,7 @@ static int process_request(struct Request *req, int cli_sock)
 				|| strncmp(req->origin,ORIGIN_DEF,strlen(ORIGIN_DEF)) != 0) {
 			/*send bad request*/
 			/*send a bed request response*/
-			if(generate_response(&res,400,NULL,req) == -1) {
+			if(generate_response(&res,400,NULL,req,1) == -1) {
 				clear_response(&res);
 				return -1;
 			}
@@ -888,7 +557,7 @@ static int process_request(struct Request *req, int cli_sock)
 		}
 
 		/*send a response to the options request*/
-		if(generate_response(&res,200,NULL,req) == -1) break;
+		if(generate_response(&res,200,NULL,req,1) == -1) break;
 
 		clear_request(req);
 		int w = 0;
@@ -910,7 +579,7 @@ static int process_request(struct Request *req, int cli_sock)
 	{
 		struct Response res = {0};
 		/*send a bed request response*/
-		if(generate_response(&res,400,NULL,req) == -1) {
+		if(generate_response(&res,400,NULL,req,0) == -1) {
 			clear_response(&res);
 			return -1;
 		}
@@ -937,7 +606,7 @@ static int process_request(struct Request *req, int cli_sock)
 		fprintf(stderr,"POST branch resource is %s\n",req->resource);		
 		int load_code = load_resource_db(req,&cont,work_proc_data_sock);
 		
-		if(generate_response(&res,load_code,&cont,req) == -1) {
+		if(generate_response(&res,load_code,&cont,req,0) == -1) {
 			clear_content(&cont);
 			clear_response(&res);
 			return 0;
@@ -966,3 +635,26 @@ static int process_request(struct Request *req, int cli_sock)
 	return -1;
 }
 
+static int sni_callback(SSL *ssl, int *ad, void *args)
+{
+	struct SNI_config *cfg = args;
+	const char *hostname = SSL_get_servername(ssl,TLSEXT_NAMETYPE_host_name);
+	if(!hostname){
+		*ad = SSL_AD_UNRECOGNIZED_NAME;
+		return SSL_TLSEXT_ERR_ALERT_FATAL;
+	}
+
+	
+	for(int i = 0; i < cfg->domain_count; ++i){
+			if(strcasecmp(hostname,cfg->domains[i]) == 0){
+				if(!SSL_set_SSL_CTX(ssl,cfg->ctxs[i])){
+					*ad = SSL_AD_UNRECOGNIZED_NAME;
+					return SSL_TLSEXT_ERR_ALERT_FATAL;
+				}
+				return SSL_TLSEXT_ERR_OK;
+			}
+	}	
+	
+	*ad = SSL_AD_UNRECOGNIZED_NAME;
+	return SSL_TLSEXT_ERR_ALERT_FATAL;
+}
