@@ -10,5 +10,5 @@ struct SNI_config{
 	SSL_CTX **ctxs;
 	int domain_count;
 };
-int SSL_work_process(int data_sock, uint64_t domains);
+int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path);
 #endif 

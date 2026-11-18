@@ -47,7 +47,7 @@ static char *convert_query_format_domain_to_string(uint8_t* formatted_domain);
 
 struct Connection_data cds[MAX_CON_DAT_ARR] = {0};
 
-int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs){
+int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certificates_path){
 	long opts;
 	/*certificates_path is initialized to 0 in default.c
 		certificates_path is already bounded to PATH_MAX
@@ -273,19 +273,24 @@ int listen_UNIX_socket(int opt, char *sock_path)
     return fd;
 }
 
-int connect_to_socket(int port)
+int connect_to_socket(char *ip_add, int port)
 {
 	struct sockaddr_in addr = {0};
 
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port); 
-	addr.sin_addr.s_addr = INADDR_ANY;
+	addr.sin_addr.s_addr = inet_addr(ip_add);
 	errno = 0;
 
 	int sock_fd = socket(AF_INET,SOCK_STREAM | SOCK_NONBLOCK,0);
 	if(sock_fd == -1) return -1;
 
-	int result = connect(sock_fd,(const struct sockaddr*) &addr,sizeof(addr));
+	
+	int result = 0;
+con_to_sock:
+	result = connect(sock_fd,(const struct sockaddr*) &addr,sizeof(addr));
+	if(result == -1 && errno == EINPROGRESS)goto con_to_sock;
+	
 	if(result == -1){
 		fprintf(stderr,"failed to connect to port '%d', %s\n",port,strerror(errno));
 		return -1;

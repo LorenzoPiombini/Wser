@@ -134,7 +134,7 @@ extern struct Connection_data cds[MAX_CON_DAT_ARR];
 extern SSL_CTX **ctxs;
 extern SSL_CTX *ctx_client;
 
-int init_SSL(char** domains, int active_domain,SSL_CTX *** ctxs);
+int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certificates_path);
 void free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
@@ -142,7 +142,7 @@ int listen_UNIX_socket(int opt, char *sock_path);
 uint16_t convert_string_to_type(char *type);
 int DNS_query(char *domain, uint16_t type);
 int connect_UNIX_socket(int opt, char *sock_path);
-int connect_to_socket(int port);
+int connect_to_socket(char *ip_addr, int port);
 void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);

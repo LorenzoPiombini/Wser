@@ -92,7 +92,6 @@ static int go_to_user_home_dir()
 		return -1;
 	}
 	uid_t uid = getuid();
-	setuid(uid);
 	struct passwd *pw = getpwuid(uid);
 	size_t dir_len = strlen(dir);
 	if(dir_len == strlen(pw->pw_dir)){

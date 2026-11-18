@@ -8,6 +8,7 @@
 #include <openssl/ssl.h> 
 #include <sys/socket.h>
 #include "network.h" 
+#include "main.h" 
 #include "load.h"
 #include "request.h"
 #include "monitor.h"
@@ -166,7 +167,7 @@ int main(int argc, char **argv)
 
 			ssl_sock = data_sock;
 
-			SSL_work_process(data_sock,(uint64_t)domains);
+			SSL_work_process(data_sock,(uint64_t)domains,certificates_path);
 			exit(1);
 		}
 	}

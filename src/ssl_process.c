@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -51,7 +52,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 
 static int sni_callback(SSL *ssl, int *ad, void *args);
 
-int SSL_work_process(int data_sock, uint64_t domains)
+int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 {
 
 #ifdef OWN_DB
@@ -96,7 +97,7 @@ int SSL_work_process(int data_sock, uint64_t domains)
 
 	char **d = (char **)(domains & 0x0000FFFFFFFFFFFF);
 	int active_domains = (int)(domains >> 48);
-	if(init_SSL(d,active_domains,&ctxs) == -1){
+	if(init_SSL(d,active_domains,&ctxs,certificate_path) == -1){
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		stop_monitor();
 		signal_server_parent(SIGINT);
@@ -147,7 +148,7 @@ int SSL_work_process(int data_sock, uint64_t domains)
 			if(reload_certificate){
 				reload_certificate = 0;
 				free_SSL_ctxs(&ctxs,active_domains);
-				if(init_SSL(d,active_domains,&ctxs) == -1){
+				if(init_SSL(d,active_domains,&ctxs,certificate_path) == -1){
 					fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 					stop_monitor();
 #ifdef OWN_DB		
@@ -257,7 +258,7 @@ int SSL_work_process(int data_sock, uint64_t domains)
 				}
 
 loop:
-				int nfds =-1,j;
+				int nfds =-1,j = 0;
 				for(;;){
 					/*start monitoring event with a timer of 5 seconds*/
 					if((nfds = monitor_events(5000)) == -1) goto teardown;
