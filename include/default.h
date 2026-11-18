@@ -2,11 +2,9 @@
 #define _DEFAULT_H_
 
 #include "limits.h"
+#include "main.h"
 
 #define MAX_FILE_ON_STACK 1024
-extern char certificates_path[PATH_MAX];
-extern char server_log_file[PATH_MAX];
-extern char dir[PATH_MAX];
 
 #define DEF_DIR_L 5
 #define DEF_DIR "/www"
