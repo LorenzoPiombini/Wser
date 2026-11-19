@@ -110,7 +110,7 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 	SSL_CTX_set_tlsext_servername_arg(ctxs[0],&config);
 
 	/*setting up to receiving file descriptor from another process*/
-	int            data, cli_sock;
+	int            data, cli_sock = 0;
 	struct iovec   iov;
 	struct msghdr  msgh;
 
