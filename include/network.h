@@ -134,6 +134,29 @@ extern struct Connection_data cds[MAX_CON_DAT_ARR];
 extern SSL_CTX **ctxs;
 extern SSL_CTX *ctx_client;
 
+
+typedef enum {
+    STRING,
+    NUMBER,
+    USER
+}type_T;
+
+typedef struct data data_t;
+/*data to pass to internal socket*/
+struct data{
+    type_T type;
+    union{
+        void *user;
+        union{
+            int     i;
+            long    l;
+            double  d;
+            float   f;
+        }number;
+        char *s;
+    }data;
+};
+
 int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certificates_path);
 void free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
@@ -147,6 +170,7 @@ void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);
 int read_cli_sock(int cli_sock, struct Request *req);
 int write_cli_sock(int cli_sock, struct Response *res);
+int write_internal_sock(int socket, char  *data);
 int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd);
 int wait_for_connections(int sock_fd, int *cli_sock, struct Request *req,int mode);
 int perform_http_request(char *URL, char *req, char **body);

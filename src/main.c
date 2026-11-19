@@ -116,6 +116,11 @@ int main(int argc, char **argv)
 		}
 	}
 
+    if(secure && domains == NULL){
+        fprintf(stderr,"(%s): cannot start the server,at least domain needed for secure connection.\n",prog);
+        return -1 ;
+    }
+
     if(handle_sig_main_process() == -1) return -1;
 
 
@@ -210,13 +215,12 @@ int main(int argc, char **argv)
 	cmsgp->cmsg_len = CMSG_LEN(sizeof(int));
 
 
-	pid_t port_80_handle_child = server_fork();
-	if(port_80_handle_child == -1){
-		if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
-		stop_listening(con);
-		return -1;
-	}
-
+    pid_t port_80_handle_child = server_fork();
+    if(port_80_handle_child == -1){
+        if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
+        stop_listening(con);
+        return -1;
+    }
 
 	/*start 80(HTTP) and cert renewal handle process*/
 	if(port_80_handle_child == 0){
@@ -230,8 +234,8 @@ int main(int argc, char **argv)
 		int data_sock = -1;
 		if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK,INT_PROC_SOCK_PORT_EIGTHY_CERT_REN)) == -1){
 			if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
+		    signal_server_parent(SIGINT);
 			exit(1);
-			return -1;
 		}
 
 		http_sock = data_sock;
