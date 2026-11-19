@@ -255,8 +255,11 @@ int listen_UNIX_socket(int opt, char *sock_path)
     if(lstat(sock_path, &st) == 0){
         /* Never remove an unrelated regular file or follow a symlink. */
         if(!S_ISSOCK(st.st_mode)){ errno = EEXIST; return -1; }
-        if(unlink(sock_path)) return -1;
-    } else if(errno != ENOENT) return -1;
+        if(unlink(sock_path) == -1) return -1;
+    } else if(errno != ENOENT){
+        return -1;
+    }
+
     int flags = SOCK_SEQPACKET | SOCK_CLOEXEC;
     if(opt == SOCK_NONBLOCK) flags |= SOCK_NONBLOCK;
 
@@ -617,6 +620,24 @@ int write_cli_SSL(int cli_sock, struct Response *res, struct Connection_data *cd
     return 0;
 }
 
+int write_internal_sock(int socket, char *buf)
+{
+	errno = 0;
+	int len = strlen(buf);
+	ssize_t bwritten = 0;
+	ssize_t s = 0;
+
+write_to_sock:
+	s = write(socket,&buf[bwritten],len - bwritten);
+    if(errno == EAGAIN 
+			|| errno == EWOULDBLOCK) {
+        bwritten += s;
+        if( bwritten < len) goto write_to_sock;
+	} else if(s < 0){
+        return -1;
+    }
+    return 0;
+}
 int write_cli_sock(int cli_sock, struct Response *res)
 {
     size_t header_size = strlen(res->header_str);
@@ -1218,6 +1239,7 @@ int perform_http_request(char *URL, char *req, char **body)
 				}
 
 				if(!body){
+                    /*l already count for +1 */
 					all_data_from_the_response = calloc(l,sizeof(char));
 					if(!all_data_from_the_response){
 						close(sock_fd);
@@ -1263,18 +1285,20 @@ int perform_http_request(char *URL, char *req, char **body)
 			free(all_data_from_the_response);
 		}else if(body){
 			if(*body == NULL){
-				*body = calloc(strlen(pbuf)+1,sizeof(char));	
+                size_t s = strlen(pbuf);
+				*body = calloc(s+1,sizeof(char));	
 				if(!(*body)){
 					close(sock_fd);
 					return -1;
 				}
-				int inx = find_headers_end(pbuf,strlen(pbuf));
+				int inx = find_headers_end(pbuf,s);
 				if(inx == -1){
-					strncpy(*body,pbuf,strlen(pbuf));
+					strncpy(*body,pbuf,s+1);
 					if(pbuf != &buff[0])
 						free(pbuf);
 				}else{
-					strncpy(*body,&pbuf[inx],strlen(&pbuf[inx]));
+                    size_t sz = strlen(&pbuf[inx]);
+					strncpy(*body,&pbuf[inx],sz+1);
 					if(pbuf != &buff[0])
 						free(pbuf);
 				}
@@ -1314,13 +1338,15 @@ int perform_http_request(char *URL, char *req, char **body)
 	int index = find_headers_end(buff, (size_t)bread);
 
 	if(body && !(*body)){
-		*body = calloc(strlen(&buff[index])+1,sizeof(char));		
+        size_t s = strlen(&buff[index]);
+		*body = calloc(s+1,sizeof(char));		
 		if(!(*body)){
 
 		}
-		strncpy(*body,&buff[index],strlen(&buff[index]));
+        // the plus one is to avoid a pointless warning
+		strncpy(*body,&buff[index],s+1);
 	}else{
-		fprintf(stderr,"\n%s\n",&buff[index]);
+		fprintf(stdout,"\n%s\n",&buff[index]);
 	}
 	return 0;
 }
