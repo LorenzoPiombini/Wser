@@ -30,11 +30,12 @@ struct p_info proc_list_HTTP[100] = {0};
 
 static char prog[] = "wser";
 
-
 #ifdef OWN_DB
 	#include "work_process.h" /* database handler*/
+    static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock);
+#else
+    static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure);
 #endif
-static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock);
 
 static int http_step(int sock,struct Request *req);
 
@@ -201,7 +202,7 @@ int HTTP_work_process(int data_sock,int secure)
 					process_request(&req,cli_sock,r,secure,-1);
 				}
 #else
-				process_request(&req,cli_sock,r,secure,-1);
+				process_request(&req,cli_sock,r,secure);
 				clear_request(&req);
 #endif
 				goto teardown;/**/
@@ -224,7 +225,7 @@ loop:
 							process_request(&req,events[j].data.fd,r,secure,-1);
 						}
 #else
-						process_request(&req,events[j].data.fd,r,secure,-1);
+						process_request(&req,events[j].data.fd,r,secure);
 						clear_request(&req);
 #endif
 						goto teardown;
@@ -296,7 +297,11 @@ static int http_step(int sock,struct Request *req)
 	return 0;
 }
 
+#ifdef OWN_DB
 static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure, int db_sock)
+#else
+static int process_request(struct Request *req, int cli_sock,int result_of_http_step,int secure)
+#endif
 {
 
 	struct Content cont = {0};
