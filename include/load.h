@@ -18,4 +18,9 @@ void clear_content(struct Content *cont);
 int load_resource_db(struct Request *req, struct Content *cont,int data_sock);
 #endif
 
+#if EZ_GUI
+#include "tpt_endpoint.h"
+int load_resource_EZ(struct Request *req, struct Content *cont,int data_sock);
+#endif
+
 #endif

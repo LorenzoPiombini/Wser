@@ -14,6 +14,7 @@ static char prog[] = "wser";
 static char *map_rpath(char *rpath);
 static int check_URL_encoding(char *p);
 
+const int EIGHTkib_limit = 1024 * 8;
 #define MAX_LOADABLE_FILE (16U * 1024U * 1024U)
 
 #ifdef OWN_DB
@@ -22,8 +23,12 @@ static int check_URL_encoding(char *p);
 #include "end_points.h"
 #include "lua_start.h"
 #include "ctype.h"
+#endif
+
+#if defined(OWN_DB) || defined(EZ_GUI)
+
 #include <assert.h>
-const int EIGHTkib_limit = 1024 * 8;
+
 static int key_allowed(char **wlist,const char* json, struct Json_token *k);
 /*orgainizing JSON token,functions*/
 static int serialize(const char* json, struct Json_token *t, uint8_t *buffer, size_t buf_size,size_t *bwritten,int token_nr);
@@ -31,6 +36,7 @@ static int ser_flat_object(const char *json,struct Json_token *t,uint8_t *buffer
 static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_t buf_size,size_t *bwritten,int *cursor);
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
+
 
 int load_resource(char *rpath, struct Content *cont, int gzip)
 {
@@ -694,6 +700,8 @@ int load_resource_db(struct Request *req, struct Content *cont,int data_sock)
 	return 400;/*if program reach this line, request is wrong*/
 }	
 
+#elif defined(OWN_DB) || defined(EZ_GUI)
+
 static int key_allowed(char **wlist,const char* json, struct Json_token *k)
 {
 	int k_len = k->end - k->start;
@@ -855,6 +863,25 @@ static int check_key_in_object(char **allowed,const char *json,struct Json_token
 }
 
 #endif
+
+// GUI for TPT
+#if EZ_GUI
+
+int load_resource_EZ(struct Request *req, struct Content *cont,int data_sock)
+{
+	int resource = map_tpt_end_point(req->resource); 
+	if(resource == -1) return 400;
+
+	switch(req->method){
+    default: break;
+    case GET:
+    case POST:
+    }
+
+    return 400;
+}
+#endif
+
 static int check_URL_encoding(char *p)
 {
 	int sz = (int)strlen(p);
