@@ -24,7 +24,7 @@ struct p_info{
 };
 
 struct p_info proc_list_HTTP[100] = {0};
-#define TIME_OUT 300 /*5 minutes*/
+#define TIME_OUT 5 /*5 seconds*/
 #define EIGHTkib_limit 8192
 
 
@@ -166,6 +166,13 @@ int HTTP_work_process(int data_sock,int secure)
 			int child_slot;
             for(child_slot = 0; child_slot < 100; ++child_slot){
                 if(proc_list_HTTP[child_slot].p <= 0 || !server_child_running(proc_list_HTTP[child_slot].p)) break;
+				struct timespec tp = {0};
+				if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1) tp.tv_sec = time(NULL);
+				if(tp.tv_sec - proc_list_HTTP[child_slot].t) {
+						if(proc_list_HTTP[child_slot].p > 1) 
+							signal_server_process(proc_list_HTTP[i].p,SIGKILL);
+				}
+					
             }
             if(child_slot == 100){
                 close(cli_sock);
@@ -251,7 +258,13 @@ teardown:
 				stop_listening(sock);
 
             proc_list_HTTP[child_slot].p = child;
-            proc_list_HTTP[child_slot].t = time(NULL);
+
+			struct timespec tp;
+			if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1){
+				proc_list_HTTP[child_slot].t = time(NULL);
+			}else{
+				proc_list_HTTP[child_slot].t = tp.tv_sec;
+			}
             int i;
             /*wait on the children*/
 				for(i = 0; i < 100;i++){
