@@ -168,12 +168,15 @@ int HTTP_work_process(int data_sock,int secure)
                 if(proc_list_HTTP[child_slot].p <= 0 || !server_child_running(proc_list_HTTP[child_slot].p)) break;
 				struct timespec tp = {0};
 				if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1) tp.tv_sec = time(NULL);
-				if(tp.tv_sec - proc_list_HTTP[child_slot].t) {
-						if(proc_list_HTTP[child_slot].p > 1) 
-							signal_server_process(proc_list_HTTP[i].p,SIGKILL);
+
+				if(tp.tv_sec - proc_list_HTTP[child_slot].t > TIME_OUT) {
+						if(proc_list_HTTP[child_slot].p > 1){
+							signal_server_process(proc_list_HTTP[child_slot].p,SIGKILL);
+							proc_list_HTTP[child_slot].p = -1;
+						}
 				}
-					
             }
+
             if(child_slot == 100){
                 close(cli_sock);
                 close(sock);
@@ -278,7 +281,8 @@ teardown:
 						continue;
 					}
 
-					if(proc_list_HTTP[i].t > 0 && ((time(NULL) - proc_list_HTTP[i].t ) > (time_t) TIME_OUT)){
+					
+					if(proc_list_HTTP[i].t > 0 && ((tp.tv_sec - proc_list_HTTP[i].t ) > (time_t) TIME_OUT)){
 						if(signal_server_process(proc_list_HTTP[i].p,SIGKILL) == 0){
 							continue;
 						}
