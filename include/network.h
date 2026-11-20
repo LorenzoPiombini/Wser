@@ -18,11 +18,15 @@
 #define WRITE_OK 24
 #define SSL_CLOSE 25
 #define CLEAN_TEARDOWN 26
-#define INT_PROC_SOCK_SSL "/tmp/TLS_SSL_operation.socket"
-#define INT_PROC_SOCK_PORT_EIGTHY_CERT_REN "/tmp/80_port_and_CERT_ren_operation.socket"
+#define INT_PROC_SOCK_SSL 0
+#define INT_PROC_SOCK_PORT_EIGTHY_CERT_REN 1
+
+extern char unix_sock_ssl[20];
+extern char unix_sock_http[20];
 
 #if OWN_DB
-	#define INT_PROC_SOCK_DB  "/tmp/db_operation.socket"
+	#define INT_PROC_SOCK_DB  2
+    extern char unix_sock_db[20];
 #endif /*OWN_DB -make flag-*/
 
 /*MACRO TO MANIPULATE THE DNS HEADER */ 
@@ -161,10 +165,10 @@ int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certifica
 void free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
-int listen_UNIX_socket(int opt, char *sock_path);
+int listen_UNIX_socket(int opt, int type);
 uint16_t convert_string_to_type(char *type);
 int DNS_query(char *domain, uint16_t type);
-int connect_UNIX_socket(int opt, char *sock_path);
+int connect_UNIX_socket(int opt, int type);
 int connect_to_socket(char *ip_addr, int port);
 void clean_connecion_data(struct Connection_data *cd, int sock);
 int read_cli_sock_SSL(int cli_sock, struct Request *req, struct Connection_data *cd);

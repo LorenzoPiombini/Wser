@@ -24,6 +24,16 @@
 #include "monitor.h"       
 #include "default.h"       
 
+char unix_sock_ssl[20] ={0};
+char unix_sock_http[20] ={0};
+
+#ifdef OWN_DB
+    char unix_sock_db[20] = {0};
+    char *sock_arr[] = {unix_sock_ssl,unix_sock_http,unix_sock_db,NULL};
+#else
+    char *sock_arr[] = {unix_sock_ssl,unix_sock_http,NULL};
+#endif 
+
 char cache_id[] = "wser";
 SSL_CTX *ctx_client = NULL;
 SSL *ssl_client = NULL;
@@ -173,49 +183,72 @@ int listen_port_80(uint16_t *port)
 	int sock_fd = socket(AF_INET,SOCK_STREAM | SOCK_NONBLOCK,0);
 	if(sock_fd == -1) return -1;
 		
+    int opt = 1;
+    if ( setsockopt(sock_fd,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt)) == -1){
+        close(sock_fd);
+        return -1;
+    }
 
 sock_setup:
 
        	if(bind(sock_fd, (struct sockaddr *)&addr,sizeof(addr)) == -1){
-		close(sock_fd);
-		if(*port != 8080)
-			*port = 8080;
-		else
-			(*port)++;
+            close(sock_fd);
+            if(*port != 8080)
+                *port = 8080;
+            else
+                (*port)++;
 
-		while(errno == EACCES){
-			if(try == 0) break;
-			errno = 0;
-			addr.sin_port = htons(*port); 
-			sock_fd = socket(AF_INET,SOCK_STREAM | SOCK_NONBLOCK,0);
-			try--;
-		}
-		
-		if(errno == 0) goto sock_setup;
-		return -1;
-	}
+            while(errno == EACCES){
+                if(try == 0) break;
+                errno = 0;
+                addr.sin_port = htons(*port); 
+                sock_fd = socket(AF_INET,SOCK_STREAM | SOCK_NONBLOCK,0);
+                try--;
+            }
 
-	if(listen(sock_fd,LISTEN_BACKLOG) == -1){
-		close(sock_fd);
-		return -1;
-	}
+            if(errno == 0) goto sock_setup;
+            return -1;
+        }
+
+        if(listen(sock_fd,LISTEN_BACKLOG) == -1){
+            close(sock_fd);
+            return -1;
+        }
 
 	return sock_fd;
 }
 
-static int unix_address(struct sockaddr_un *addr, const char *path)
+static int unix_address(struct sockaddr_un *addr, int type)
 {
-    if (!path || !*path){ 
-		errno = EINVAL; return -1;
-	}
-
-    if(strlen(path) >= sizeof(addr->sun_path)) {
+    if(type > 2 || type < 0) return -1;
+    if(sock_arr[type][0] == '\0'){
+        /*create the socket*/
+        uint16_t r;
+        if(getrandom(&r,sizeof(uint16_t),0) == -1) return -1;
+    
+        switch(type){
+        default: return -1;
+        case INT_PROC_SOCK_SSL:
+            if(snprintf(sock_arr[type],20,"/tmp/%uSSL.sock",r) == -1) return -1;
+            break;
+        case INT_PROC_SOCK_PORT_EIGTHY_CERT_REN:
+            if(snprintf(sock_arr[type],20,"/tmp/%uHTTP.sock",r) == -1) return -1;
+            break;
+#ifdef OWN_DB
+        case INT_PROC_SOCK_DB:
+            if(snprintf(sock_arr[type],20,"/tmp/%uDB.sock",r) == -1) return -1;
+            break;
+#endif
+        }
+    }
+    
+    if(strlen(sock_arr[type]) >= sizeof(addr->sun_path)) {
 		errno = ENAMETOOLONG; 
 		return -1; 
 	}
 
     addr->sun_family = AF_UNIX;
-    memcpy(addr->sun_path, path, strlen(path) + 1);
+    memcpy(addr->sun_path, sock_arr[type], strlen(sock_arr[type]) + 1);
     return 0;
 }
 
@@ -227,10 +260,11 @@ static int close_failed_socket(int fd)
     return -1;
 }
 
-int connect_UNIX_socket(int opt, char *sock_path)
+int connect_UNIX_socket(int opt,int type)
 {
+    
     struct sockaddr_un addr = {0};
-    if(unix_address(&addr, sock_path)) return -1;
+    if(unix_address(&addr, type)) return -1;
 
     int flags = SOCK_SEQPACKET | SOCK_CLOEXEC;
 
@@ -246,16 +280,16 @@ int connect_UNIX_socket(int opt, char *sock_path)
     return fd;
 }
 
-int listen_UNIX_socket(int opt, char *sock_path)
+int listen_UNIX_socket(int opt, int type)
 {
     struct sockaddr_un addr = {0};
-    if(unix_address(&addr, sock_path)) return -1;
+    if(unix_address(&addr, type)) return -1;
 
     struct stat st;
-    if(lstat(sock_path, &st) == 0){
+    if(lstat(sock_arr[type], &st) == 0){
         /* Never remove an unrelated regular file or follow a symlink. */
         if(!S_ISSOCK(st.st_mode)){ errno = EEXIST; return -1; }
-        if(unlink(sock_path) == -1) return -1;
+        if(unlink(sock_arr[type]) == -1) return -1;
     } else if(errno != ENOENT){
         return -1;
     }
@@ -269,7 +303,7 @@ int listen_UNIX_socket(int opt, char *sock_path)
     if(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) return close_failed_socket(fd);
     if(listen(fd, 20) < 0){
         int error = errno;
-        unlink(sock_path);
+        unlink(sock_arr[type]);
         errno = error;
         return close_failed_socket(fd);
     }
