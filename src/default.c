@@ -213,7 +213,8 @@ static int load_wser_config(FILE **config_file)
 	memset(buf,0,MAX_FILE_ON_STACK);
 	if(!(*config_file)){ 
         *config_file = fopen(".wser.conf","r");
-        if(!(*config_file)) return -1;
+        if(!(*config_file)) 
+            if(create_wser_config(config_file) == -1) return -1;
     }
 
 	if(fseek(*config_file,0,SEEK_END) == -1) goto failed;
