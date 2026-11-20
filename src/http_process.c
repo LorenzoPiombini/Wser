@@ -163,11 +163,12 @@ int HTTP_work_process(int data_sock,int secure)
 
 			memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
 
+            struct timespec tp = {0};
+            if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1) tp.tv_sec = time(NULL);
+
 			int child_slot;
             for(child_slot = 0; child_slot < 100; ++child_slot){
                 if(proc_list_HTTP[child_slot].p <= 0 || !server_child_running(proc_list_HTTP[child_slot].p)) break;
-				struct timespec tp = {0};
-				if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1) tp.tv_sec = time(NULL);
 
 				if(tp.tv_sec - proc_list_HTTP[child_slot].t > TIME_OUT) {
 						if(proc_list_HTTP[child_slot].p > 1){

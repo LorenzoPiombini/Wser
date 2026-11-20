@@ -205,9 +205,14 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 
 			memcpy(&cli_sock, CMSG_DATA(cmsgp), sizeof(int));
 
+            struct timespec tp = {0};
+            if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1) tp.tv_sec = time(NULL);
+
 			int child_slot;
             for(child_slot = 0; child_slot < 100; ++child_slot){
                 if(proc_list[child_slot].p <= 0 || !server_child_running(proc_list[child_slot].p)) break;
+                if(tp.tv_sec - proc_list[child_slot].t > TIME_OUT)
+                    if(proc_list[child_slot].p > 1) signal_server_process(proc_list[child_slot].p,SIGKILL);
             }
             if(child_slot == 100){
                 close(cli_sock);
@@ -363,7 +368,10 @@ teardown:
 			stop_listening(sock);
 
             proc_list[child_slot].p = child;
-            proc_list[child_slot].t = time(NULL);
+            struct timespec tp = {0};
+            if(clock_gettime(CLOCK_MONOTONIC,&tp) == -1) tp.tv_sec = time(NULL);
+            
+            proc_list[child_slot].t = tp.tv_sec;
             int i;
             /*wait on the children*/
 			for(i = 0; i < 100;i++){
@@ -377,7 +385,7 @@ teardown:
 					continue;
 				}
 
-				if(proc_list[i].t > 0 && ((time(NULL) - proc_list[i].t ) > (time_t) TIME_OUT)){
+				if(proc_list[i].t > 0 && ((tp.tv_sec - proc_list[i].t ) > (time_t) TIME_OUT)){
 					if(signal_server_process(proc_list[i].p,SIGKILL) == 0){
 						continue;
 					}
