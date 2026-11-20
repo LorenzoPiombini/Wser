@@ -192,14 +192,6 @@ static int no_su_setting()
 				return -1;
 			}
 			FILE *cf = NULL;
-			if(create_wser_config(&cf) == -1){
-				fprintf(stderr,"(%s): cannot create config file",prog);	
-				if(chdir(dir) == -1){
-					fprintf(stderr,"(%s): cannot change directory.\n",prog);
-					return -1;
-				}
-				return -1;
-			}
 			if(load_wser_config(&cf) == -1){
 				if(chdir(dir) == -1){
 					fprintf(stderr,"(%s): cannot change directory.\n",prog);
@@ -218,6 +210,8 @@ static int no_su_setting()
 			}
 			fputs(INDEX_CNT,fp);
 			fclose(fp);
+
+			if(chdir(DEF_DIR_no_su) == -1) return -1;
 			return 0;
 		}
 	}
@@ -231,8 +225,9 @@ static int no_su_setting()
         }
         return -1;
     }
-	if(S_ISDIR(st.st_mode)) return 0;
-	return -1;
+
+    if(chdir(DEF_DIR_no_su) == -1)return -1
+	return 0;
 }
 
 
@@ -310,6 +305,6 @@ static int create_wser_config(FILE **config_file)
 		"# path where the server will write the logs\n"
 		"SERVER_LOG_PATH=.local/logs/server.log\n",
 		fp);	
-	fclose(fp);
+    *config_file = fp;
 	return 0;
 }
