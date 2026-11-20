@@ -207,9 +207,9 @@ int HTTP_work_process(int data_sock,int secure)
 #endif
 				goto teardown;/**/
 loop:
-				int nfd =-1,j;
+				int nfd =-1,j = 0;
 				for(;;){
-					if((nfd = monitor_events(-1)) == -1) goto teardown;
+					if((nfd = monitor_events(5000)) == -1) goto teardown;
 					if(nfd == MONITOR_INTERRUPTED){
 						continue; /*change with goto teardwn in prod*/
 					}
