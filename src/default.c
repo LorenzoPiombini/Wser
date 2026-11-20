@@ -211,7 +211,6 @@ static int no_su_setting()
 			fputs(INDEX_CNT,fp);
 			fclose(fp);
 
-			if(chdir(DEF_DIR_no_su) == -1) return -1;
 			return 0;
 		}
 	}
@@ -226,7 +225,6 @@ static int no_su_setting()
         return -1;
     }
 
-    if(chdir(DEF_DIR_no_su) == -1)return -1
 	return 0;
 }
 
