@@ -27,7 +27,7 @@ struct p_info{
 };
 
 struct p_info proc_list[100] = {0};
-#define TIME_OUT 300 /*5 minutes*/
+#define TIME_OUT 5 /*5 second*/
 #define EIGHTkib_limit 8192
 
 SSL_CTX **ctxs = NULL;
