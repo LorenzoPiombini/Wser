@@ -65,6 +65,23 @@ int check_default_setting()
 				return -1;
 			}
 			
+			FILE *cf = NULL;
+			if(create_wser_config(&cf) == -1){
+				fprintf(stderr,"(%s): cannot create config file",prog);	
+				if(chdir(dir) == -1){
+					fprintf(stderr,"(%s): cannot change directory.\n",prog);
+					return -1;
+				}
+				return -1;
+			}
+
+			if(load_wser_config(&cf) == -1){
+				if(chdir(dir) == -1){
+					fprintf(stderr,"(%s): cannot change directory.\n",prog);
+					return -1;
+				}
+				return -1;
+			}
 			FILE *fp = fopen(INDEX_FILE,"w");
 			if(!fp){
 		   		fprintf(stderr,"(%s): cannot create sample home page",prog);	
@@ -75,6 +92,15 @@ int check_default_setting()
 			return 0;
 		}
 	}
+
+    FILE *cf = NULL;
+    if(load_wser_config(&cf) == -1){
+        if(chdir(dir) == -1){
+            fprintf(stderr,"(%s): cannot change directory.\n",prog);
+            return -1;
+        }
+        return -1;
+    }
 	
 	if(S_ISDIR(st.st_mode))return 0;
 
@@ -114,6 +140,7 @@ static int go_to_user_home_dir()
 
 	return 0;
 }
+
 static int no_su_setting()
 {
 	/*get the user home path and check/create the defautl folder there*/
@@ -165,6 +192,15 @@ static int no_su_setting()
 		}
 	}
 
+    /*load the conf file*/
+	FILE *cf = NULL;
+	if(load_wser_config(&cf) == -1){
+        if(chdir(dir) == -1){
+            fprintf(stderr,"(%s): cannot change directory.\n",prog);
+            return -1;
+        }
+        return -1;
+    }
 	if(S_ISDIR(st.st_mode)) return 0;
 	return -1;
 }
@@ -175,7 +211,11 @@ static int load_wser_config(FILE **config_file)
 
 	char buf[MAX_FILE_ON_STACK];
 	memset(buf,0,MAX_FILE_ON_STACK);
-	if(!(*config_file)) return -1;
+	if(!(*config_file)){ 
+        *config_file = fopen(".wser.conf","r");
+        if(!(*config_file)) return -1;
+    }
+
 	if(fseek(*config_file,0,SEEK_END) == -1) goto failed;
 	
 	long long size = ftell(*config_file);
@@ -215,6 +255,7 @@ failed:
 	if(*config_file) fclose(*config_file);
 	return -1;
 }
+
 static int create_wser_config(FILE **config_file)
 {
 	FILE *fp = fopen(".wser.conf","r");
