@@ -13,6 +13,7 @@
 char dir[PATH_MAX] = {0};
 static char prog[] = "wser";
 static int no_su_setting();
+static int su_setting();
 static int create_wser_config();
 static int go_to_user_home_dir();
 static int load_wser_config(FILE **config_file);
@@ -24,6 +25,25 @@ int check_default_setting()
 	if(getuid() != 0){
 		if(no_su_setting() == -1) return -1;
 	}else{
+        if(su_setting() == -1) return -1;
+    }
+    return 0;
+}
+
+static int su_setting()
+{
+    /*this is root */
+        if(go_to_user_home_dir() == -1) return -1;
+
+        FILE *cf = NULL;
+		if(load_wser_config(&cf) == -1){
+            if(chdir(dir) == -1){
+                fprintf(stderr,"(%s): cannot change directory.\n",prog);
+                return -1;
+            }
+            return -1;
+        }
+
 		if(chdir(DEF_DIR) == -1) {
 			/*make the directory*/
 			if(mkdir(DEF_DIR,S_IFDIR | S_IRWXU) == -1){
@@ -31,18 +51,22 @@ int check_default_setting()
 				return -1;
 			}
 
+			
 			FILE *fp = fopen(INDEX_FILE,"w");
 			if(!fp){
 				fprintf(stderr,"(%s): cannot create sample home page",prog);	
 				return -1;
 			}
+
 			fputs(INDEX_CNT,fp);
 			fclose(fp);
+            if(chdir(DEF_DIR) == -1) return -1;
 			return 0;
 		}
-	}
+        return 0;
+}
 
-
+#if 0
 	struct stat st;
 	if(stat(DEF_DIR,&st) == -1){
 		if(errno == EACCES){ 
@@ -59,11 +83,14 @@ int check_default_setting()
 				return -1;
 			}
 
+
 			/*create the folder*/
 			if(mkdir(DEF_DIR,S_IFDIR | S_IRWXU) == -1){
 				fprintf(stderr,"(%s:)cannot setup default folder.\n",prog);
 				return -1;
 			}
+
+            if(go_to_user_home_dir() == -1) return -1;
 			
 			FILE *cf = NULL;
 			if(create_wser_config(&cf) == -1){
@@ -82,6 +109,7 @@ int check_default_setting()
 				}
 				return -1;
 			}
+
 			FILE *fp = fopen(INDEX_FILE,"w");
 			if(!fp){
 		   		fprintf(stderr,"(%s): cannot create sample home page",prog);	
@@ -93,6 +121,7 @@ int check_default_setting()
 		}
 	}
 
+    go_to_user_home_dir();
     FILE *cf = NULL;
     if(load_wser_config(&cf) == -1){
         if(chdir(dir) == -1){
@@ -107,6 +136,7 @@ int check_default_setting()
 	return -1;
 }
 
+#endif
 static int go_to_user_home_dir()
 {
 	errno = 0;
