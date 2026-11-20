@@ -172,7 +172,6 @@ int HTTP_work_process(int data_sock,int secure)
 				if(tp.tv_sec - proc_list_HTTP[child_slot].t > TIME_OUT) {
 						if(proc_list_HTTP[child_slot].p > 1){
 							signal_server_process(proc_list_HTTP[child_slot].p,SIGKILL);
-							proc_list_HTTP[child_slot].p = -1;
 						}
 				}
             }
