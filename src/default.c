@@ -303,7 +303,10 @@ static int create_wser_config(FILE **config_file)
 		"# path where the server will write the logs\n"
 		"SERVER_LOG_PATH=.local/logs/server.log\n",
 		fp);	
-    rewind(fp);
+    fclose(fp);
+	fp = fopen(".wser.conf","r");
+    if(!fp) return -1;
+
     *config_file = fp;
 	return 0;
 }
