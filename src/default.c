@@ -265,30 +265,43 @@ static int load_wser_config(FILE **config_file)
 	fclose(*config_file);
 	*config_file = NULL;
 	
+	char *beg = buf;
 	/*load the paramater*/
 	char *marker= NULL;
 	if((marker = strstr(buf,"CERT_PATH"))){
-		marker += strlen("CERT_PATH=");
-		char *end = strchr(marker,'\n'); 
-		if(!end) goto failed;
-		int s = end - marker;
-		strncpy(certificates_path,marker,s);
+		char *start = marker;
+		while(start != beg && *start != '\n') start--;
+		if(*start != '#' && start != beg){
+			marker += strlen("CERT_PATH=");
+			char *end = strchr(marker,'\n'); 
+			if(!end) goto failed;
+			int s = end - marker;
+			strncpy(certificates_path,marker,s);
+		}
 	}
 
 	if((marker = strstr(buf,"SERVER_LOG_PATH"))){
-		marker += strlen("SERVER_LOG_PATH=");
-		char *end = strchr(marker,'\n'); 
-		if(!end) goto failed;
-		int s = end - marker;
-		strncpy(server_log_file,marker,s);
+		char *start = marker;
+		while(start != beg && *start != '\n') start--;
+		if(*start != '#' && start != beg){
+			marker += strlen("SERVER_LOG_PATH=");
+			char *end = strchr(marker,'\n'); 
+			if(!end) goto failed;
+			int s = end - marker;
+			strncpy(server_log_file,marker,s);
+		}
 	}
 
 	if((marker = strstr(buf,"ACME_WEBROOT"))){
+		char *start = marker;
+		while(start != beg && *start != '\n') start--;
+		if(*start != '#' && start != beg){
 		marker += strlen("ACME_WEBROOT=");
 		char *end = strchr(marker,'\n'); 
 		if(!end) goto failed;
 		int s = end - marker;
 		strncpy(acme_webroot,marker,s);
+		}
 	}
 	return 0;
 failed:
