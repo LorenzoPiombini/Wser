@@ -55,9 +55,13 @@ static int sni_callback(SSL *ssl, int *ad, void *args);
 int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 {
 
+    int db_pair[2] = {-1,-1};
 #ifdef OWN_DB
-	int work_proc_data_sock = -1;
-
+    if ( unix_pair(db_pair) == -1){
+        fprintf(stderr,"(%s): failed to start db process, socketpair() failed %s:%d\n"prog,__FILE__,__LINE__);
+        signal_server_parent(SIGINT);
+        return -1;
+    }
 	pid_t work_proc_pid = server_fork();
 
 	if(work_proc_pid == -1){
@@ -69,23 +73,18 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 	if(work_proc_pid == 0){
 		/*CHILD*/
 		/* start DB handle process */	
-		if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
-			fprintf(stderr,"cannot start Data base.\n");
-			signal_server_parent(SIGINT);
-		 	exit(-1);
-		}
-
+        close(db_pair[1]);
 		
-		db_sock = work_proc_data_sock;
 		if(handle_sig_db_process() == -1)
 			exit(1);
 
 		work_process(work_proc_data_sock);
-		return -1;
+        signal_server_parent(SIGINT);
+        exit(1);
 	}
 	
 	/*parent*/
-	db_proc = work_proc_pid;
+    close(db_pair[0]);
 
 #endif /* OWN_DB -make flag*/
 
@@ -170,29 +169,12 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 		int i;
 		for(i = 0; i < nfds; i++){
 			/* Receive ancillary data; real data is ignored */
-			int sock = -1;
 			if(events[i].data.fd == data_sock){
-				if((sock = accept(data_sock,NULL,NULL)) == -1)
-					continue;
-
 				errno = 0;
-				if(recvmsg(sock, &msgh, 0) == -1){
-					if(add_socket_to_monitor(sock, EPOLLIN) == -1) 
-						continue;
-
+				if(recvmsg(events[i].data.fd, &msgh, 0) == -1){
 					if(errno == EAGAIN || errno == EWOULDBLOCK)
 						continue;
-
-					stop_listening(sock);
-					continue;
-				}
-			}else{
-				if(recvmsg(sock, &msgh, 0) == -1){
-					if(errno == EAGAIN || errno == EWOULDBLOCK)
-						continue;
-
-					stop_listening(sock);
-					continue;
+                    continue;
 				}
 			}
 
@@ -216,7 +198,6 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
             }
             if(child_slot == 100){
                 close(cli_sock);
-                close(sock);
                 continue; /* at capacity: do not crash the service or leak a child */
             }
             pid_t child = server_fork();
@@ -224,11 +205,7 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 				/*clear ssl que error*/
 				ERR_clear_error(); 
 				/*free resources that the child does not need*/
-				stop_listening(sock);
 				stop_listening(data_sock);
-#if OWN_DB
-				int db_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_DB);
-#endif
 
 				if(start_monitor(cli_sock) == -1) {
 					fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
@@ -250,7 +227,7 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 			
 				if(r == 0 || r == 2){
 #ifdef OWN_DB
-					if(process_request(&req,cli_sock, db_sock) == 1)
+					if(process_request(&req,cli_sock, db_pair[1]) == 1)
 #else 
 					if(process_request(&req,cli_sock) == 1)
 #endif
@@ -290,7 +267,7 @@ loop:
 						{
 							/*process request*/
 #ifdef OWN_DB
-							if(process_request(&req,events[j].data.fd,db_sock) == 1)
+							if(process_request(&req,events[j].data.fd,db_pair[1]) == 1)
 #else 
 							if(process_request(&req,events[j].data.fd) == 1)
 #endif
@@ -335,7 +312,7 @@ loop:
 						clean_connecion_data(cds,events[j].data.fd);
 						free_SSL_ctxs(&ctxs,active_domains);
 #if OWN_DB
-						close(db_sock);
+						close(db_pair[1]);
 #endif
 						exit(1);
 						}
@@ -353,19 +330,17 @@ teardown:
 			free_SSL_ctxs(&ctxs,active_domains);
 			stop_monitor();
 #if OWN_DB
-			close(db_sock);
+			close(db_pair[1]);
 #endif
 			exit(0);
 		}else if(child == -1){
 			/*PARENT*/
 			stop_listening(cli_sock);
-			stop_listening(sock);
 			/*wait on the children*/
 			continue;
 		}else{
 			/*PARENT*/
 			stop_listening(cli_sock);
-			stop_listening(sock);
 
             proc_list[child_slot].p = child;
             struct timespec tp = {0};

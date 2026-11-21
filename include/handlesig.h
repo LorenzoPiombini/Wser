@@ -6,10 +6,6 @@
 #include <signal.h>
 
 extern volatile sig_atomic_t reload_certificate;
-extern int hdl_sock; 
-extern int ssl_sock;
-extern int db_sock;
-extern int http_sock;
 extern pid_t ssl_proc; 
 extern pid_t db_proc; 
 extern pid_t http_proc;

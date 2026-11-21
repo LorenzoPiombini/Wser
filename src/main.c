@@ -123,7 +123,9 @@ int main(int argc, char **argv)
 
     if(handle_sig_main_process() == -1) return -1;
 
-
+    int ssl_pair[2] = {-1,-1};
+    int http_pair[2] = {-1,-1};
+    
 	/*start listening on port 80*/
 	int con = -1, con80 = -1;
 	uint16_t port = secure ? 443 : 80;
@@ -148,6 +150,13 @@ int main(int argc, char **argv)
 
 	pid_t ssl_handle_child = -1;
 	if(secure){
+
+        if (unix_pair(ssl_pair) == -1){
+            fprintf(stderr,"(%s): failed to start ssl process, socketpair() failed %s:%d\n",prog,__FILE__,__LINE__);
+			stop_listening(con);
+			return -1;
+        }
+
 		ssl_handle_child = server_fork();
 		if(ssl_handle_child == -1){
 			stop_listening(con);
@@ -160,24 +169,19 @@ int main(int argc, char **argv)
 			if(handle_sig_ssl_process() == -1)
 				exit(1);
 
-			/*clean what we do not need*/
+			/* clean what we do not need*/
             close(con);
+            close(ssl_pair[1]);
             if(con80 >= 0) close(con80);
 
-			int data_sock = -1;
-			if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK,INT_PROC_SOCK_SSL)) == -1){
-				fprintf(stderr,"cannot linsten to UNIX SOCK for ssl process.\n");
-				exit(1);
-			}
-
-			ssl_sock = data_sock;
-
-			SSL_work_process(data_sock,(uint64_t)domains,certificates_path);
+			SSL_work_process(ssl_pair[0],(uint64_t)domains,certificates_path);
+            signal_server_parent(SIGINT);
 			exit(1);
 		}
 	}
 
-	ssl_proc = ssl_handle_child;
+    close(ssl_pair[0]);
+
 	/* 
 	 * setup needed
 	 * to send client socket file descriptors to the SSL and HTTP process
@@ -215,6 +219,14 @@ int main(int argc, char **argv)
 	cmsgp->cmsg_len = CMSG_LEN(sizeof(int));
 
 
+    if(unix_pair(http_pair) == -1){
+        fprintf(stderr,"(%s): failed to start http process, socketpair() failed %s:%d\n",prog,__FILE__,__LINE__);
+        if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
+        if(con80 >= 0) close(con80);
+        stop_listening(con);
+        return -1;
+    }
+
     pid_t port_80_handle_child = server_fork();
     if(port_80_handle_child == -1){
         if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
@@ -225,30 +237,22 @@ int main(int argc, char **argv)
 	/*start 80(HTTP) and cert renewal handle process*/
 	if(port_80_handle_child == 0){
         close(con);
+        close(http_pair[1]);
         if(con80 > 2) close(con80);
 
 		/*start signal handle for HTTP process*/
 		if(handle_sig_http_process() == -1)
 			exit(1);
 
-		int data_sock = -1;
-		if((data_sock = listen_UNIX_socket(SOCK_NONBLOCK,INT_PROC_SOCK_PORT_EIGTHY_CERT_REN)) == -1){
-			if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
-		    signal_server_parent(SIGINT);
-			exit(1);
-		}
 
-		http_sock = data_sock;
-
-		HTTP_work_process(data_sock,secure);
+		HTTP_work_process(http_pair[0],secure);
 		if(ssl_handle_child > 0) signal_server_process(ssl_handle_child,SIGINT);
 		signal_server_parent(SIGINT);
 		exit(1);
 	}
 
 	
-	http_proc = port_80_handle_child;
-	hdl_sock = con;
+    close(http_pair[0]);
 
 	if(start_monitor(con) == -1) {
 		fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
@@ -283,21 +287,14 @@ int main(int argc, char **argv)
 					memcpy(CMSG_DATA(cmsgp), &cli_sock, sizeof(int));
 
 					errno = 0;
-					int data_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_SSL);
-					if(data_sock == -1){
-						stop_listening(cli_sock);
-						continue;
-					}
-
 					/*send ancillary data to data sock*/
-					if(sendmsg(data_sock, &msgh,0) == -1){
+					if(sendmsg(ssl_pair[1], &msgh,0) == -1){
 						stop_listening(cli_sock);
 						int fd_holder = -1;
 						memcpy(CMSG_DATA(cmsgp), &fd_holder, sizeof(int));
 						continue;
 					}
 					msgh.msg_controllen = sizeof(u.buf); // Reset this every time!
-					stop_listening(data_sock);
 					stop_listening(cli_sock);
 					continue;
 				}else if(events[i].data.fd == con80){ /*handle renew certificate*/
@@ -306,23 +303,15 @@ int main(int argc, char **argv)
 			
 					memcpy(CMSG_DATA(cmsgp), &cli_sock, sizeof(int));
 
-					errno = 0;
-					int data_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_PORT_EIGTHY_CERT_REN);
-					if(data_sock == -1){
-						stop_listening(cli_sock);
-						continue;
-					}
 
 					/*send ancillary data to data sock*/
-					if(sendmsg(data_sock, &msgh,0) == -1){
+					if(sendmsg(http_pair[1], &msgh,0) == -1){
 						stop_listening(cli_sock);
-						stop_listening(data_sock);
 						int fd_holder = -1;
 						memcpy(CMSG_DATA(cmsgp), &fd_holder, sizeof(int));
 						continue;
 					}
 					msgh.msg_controllen = sizeof(u.buf); // Reset this every time!
-					stop_listening(data_sock);
 					stop_listening(cli_sock);
 					continue;
 				}
@@ -332,24 +321,15 @@ int main(int argc, char **argv)
 
 			memcpy(CMSG_DATA(cmsgp), &cli_sock, sizeof(int));
 
-			errno = 0;
-			int data_sock = connect_UNIX_socket(-1,INT_PROC_SOCK_PORT_EIGTHY_CERT_REN);
-			if(data_sock == -1){
-				stop_listening(cli_sock);
-				continue;
-			}
-
 			/*send ancillary data to data sock*/
-			if(sendmsg(data_sock, &msgh,0) == -1){
+			if(sendmsg(http_pair[1], &msgh,0) == -1){
 				stop_listening(cli_sock);
 				int fd_holder = -1;
 				memcpy(CMSG_DATA(cmsgp), &fd_holder, sizeof(int));
 				continue;
 			}
 			stop_listening(cli_sock);
-			close(data_sock);
 			continue;
-
 		}
 	}
 

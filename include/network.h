@@ -166,6 +166,7 @@ void free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
 int listen_port_80(uint16_t *port);
 int listen_UNIX_socket(int opt, int type);
+int unix_pair(int pair[2]);
 uint16_t convert_string_to_type(char *type);
 int DNS_query(char *domain, uint16_t type);
 int connect_UNIX_socket(int opt, int type);

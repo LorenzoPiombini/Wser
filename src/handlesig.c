@@ -5,10 +5,6 @@
 #include <sys/wait.h>
 #include "handlesig.h"
 
-int hdl_sock = -1;
-int ssl_sock = -1;
-int db_sock = -1;
-int http_sock = -1;
 volatile sig_atomic_t reload_certificate = 0;
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;

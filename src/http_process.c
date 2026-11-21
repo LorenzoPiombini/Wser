@@ -47,9 +47,14 @@ int HTTP_work_process(int data_sock,int secure)
 		 * when we run the server on port 80, but we need to test the entire architecture 
 		 * becuase we do not have a safe connection
 		 * */
+    int db_pair[2] = {-1,-1};
 	if(!secure){
-		int work_proc_data_sock = -1;
 
+        if (unix_pair(db_pair) == -1){
+           fprintf(stderr,"(%s): cannot start db process, unix_pair failed, %s:%d\n",prog,__FILE__,__LINE__);   
+           return -1;
+        }
+        
 		pid_t work_proc_pid = server_fork();
 
 		if(work_proc_pid == -1){
@@ -60,24 +65,19 @@ int HTTP_work_process(int data_sock,int secure)
 
 		if(work_proc_pid == 0){
 			/*CHILD*/
-			/* start DB handle process */	
-			if((work_proc_data_sock = listen_UNIX_socket(-1,INT_PROC_SOCK_DB)) == -1) {
-				fprintf(stderr,"cannot start Data base.\n");
-				signal_server_parent(SIGINT);
-				exit(-1);
-			}
 
+            close(db_pair[1]);
 
-			db_sock = work_proc_data_sock;
 			if(handle_sig_db_process() == -1)
 				exit(1);
 
-			work_process(work_proc_data_sock);
-			return -1;
+			work_process(db_pair[0]);
+            signal_server_process(SIGINT);
+			exit(1);
 		}
 
 		/*parent*/
-		db_proc = work_proc_pid;
+        close(db_pair[0]);
 	}
 
 #endif /* OWN_DB -make flag*/
@@ -128,31 +128,26 @@ int HTTP_work_process(int data_sock,int secure)
 		int i;
 		for(i = 0; i < nfds; i++){
 			/* Receive ancillary data; real data is ignored */
-			int sock = -1;
 			if(events[i].data.fd == data_sock){
-				if((sock = accept(data_sock,NULL,NULL)) == -1)
-					continue;
+				//if((sock = accept(data_sock,NULL,NULL)) == -1)
+				//	continue;
 
 				errno = 0;
-				if(recvmsg(sock, &msgh, 0) == -1){
-					if(add_socket_to_monitor(sock, EPOLLIN) == -1) 
-						continue;
-
+				if(recvmsg(events[i].data.fd, &msgh, 0) == -1){
 					if(errno == EAGAIN || errno == EWOULDBLOCK)
 						continue;
 
-					stop_listening(sock);
-					continue;
-				}
-			}else{
-				if(recvmsg(sock, &msgh, 0) == -1){
-					if(errno == EAGAIN || errno == EWOULDBLOCK)
-						continue;
-
-					stop_listening(sock);
 					continue;
 				}
 			}
+            //else{
+			//	if(recvmsg(sock, &msgh, 0) == -1){
+			//		if(errno == EAGAIN || errno == EWOULDBLOCK)
+			//			continue;
+            //
+             //       continue;
+			//	}
+			//}
 
 			cmsgp = CMSG_FIRSTHDR(&msgh);
 			if (cmsgp == NULL
@@ -179,22 +174,14 @@ int HTTP_work_process(int data_sock,int secure)
 
             if(child_slot == 100){
                 close(cli_sock);
-                close(sock);
                 continue; /* at capacity: do not crash the service or leak a child */
             }
             pid_t child = server_fork();
 			if(child == 0){
 				/*child do not need these */
-				stop_listening(sock);
 				stop_listening(data_sock);
 
 				/*handle the request*/
-#if OWN_DB
-				int db_sock = -1;
-				if(!secure){
-					connect_UNIX_socket(-1,INT_PROC_SOCK_DB);
-				}
-#endif
 				if(start_monitor(cli_sock) == -1) {
 					fprintf(stderr,"(%s): monitor event startup failed.\n",prog);
 					goto teardown;
@@ -207,7 +194,7 @@ int HTTP_work_process(int data_sock,int secure)
 				if(r == EAGAIN || r == EWOULDBLOCK) goto loop;
 #ifdef OWN_DB
 				if(!secure){
-					process_request(&req,cli_sock,r,secure, db_sock);
+					process_request(&req,cli_sock,r,secure, db_pair[1]);
 				} else{
 					process_request(&req,cli_sock,r,secure,-1);
 				}
@@ -230,7 +217,7 @@ loop:
 						if(r == EAGAIN || r == EWOULDBLOCK) break;
 #ifdef OWN_DB
 						if(!secure){
-							process_request(&req,events[j].data.fd,r,secure, db_sock);
+							process_request(&req,events[j].data.fd,r,secure, db_pair[1]);
 						}else{
 							process_request(&req,events[j].data.fd,r,secure,-1);
 						}
@@ -246,19 +233,17 @@ teardown:
 				stop_monitor();
 #ifdef OWN_DB
 				if(!secure){
-					close(db_sock);
+					close(db_pair[1]);
 				}
 #endif
 				exit(0);
 			}else if(child == -1){ /*PARENT*/
 
 				stop_listening(cli_sock);
-				stop_listening(sock);
 				continue;
 			}else{
 				/*PARENT*/
 				stop_listening(cli_sock);
-				stop_listening(sock);
 
             proc_list_HTTP[child_slot].p = child;
 
@@ -296,7 +281,7 @@ teardown:
 	stop_listening(cli_sock);
 #ifdef OWN_DB
 	if(!secure){
-		close(db_sock);
+		close(db_pair[1]);
 	}
 #endif
 	return -1;

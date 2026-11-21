@@ -310,6 +310,13 @@ int listen_UNIX_socket(int opt, int type)
     return fd;
 }
 
+int unix_pair(int pair[2])
+{
+    int flags = SOCK_NONBLOCK | SOCK_SEQPACKET | SOCK_CLOEXEC;
+    if (socketpair(AF_UNIX,flags,0,pair) == -1) return -1;
+    return 0;
+}
+
 int connect_to_socket(char *ip_add, int port)
 {
 	struct sockaddr_in addr = {0};
