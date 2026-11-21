@@ -157,13 +157,13 @@ int main(int argc, char **argv)
 			return -1;
         }
 
+		/*start SSL handle process*/
 		ssl_handle_child = server_fork();
 		if(ssl_handle_child == -1){
 			stop_listening(con);
 			return -1;
 		}
 
-		/*start SSL handle process*/
 		if(ssl_handle_child == 0){
 			/*start signal handle for this process*/
 			if(handle_sig_ssl_process() == -1)
@@ -239,7 +239,7 @@ int main(int argc, char **argv)
 	if(port_80_handle_child == 0){
         close(con);
         close(http_pair[1]);
-        close(ssl_pair[1]);
+        if(ssl_pair[1] > -1) close(ssl_pair[1]);
         if(con80 > 2) close(con80);
 
 		/*start signal handle for HTTP process*/
