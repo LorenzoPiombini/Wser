@@ -288,7 +288,7 @@ static int load_wser_config(FILE **config_file)
 		char *end = strchr(marker,'\n'); 
 		if(!end) goto failed;
 		int s = end - marker;
-		strncpy(server_log_file,marker,s);
+		strncpy(acme_webroot,marker,s);
 	}
 	return 0;
 failed:
