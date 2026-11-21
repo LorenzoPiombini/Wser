@@ -316,7 +316,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
         case HEAD:
 			if(secure){
 				char wbr_path[PATH_MAX] = {0};
-				if(acme_webroot[0] == '?'){
+				if(acme_webroot[0] == '?' || acme_webroot[0] == '\0'){
 					fprintf(stderr,"(%s) acme_webroot is not configured, check .wser.conf\n");	
 					/*send not found response*/
 					if(generate_response(&res,404,&cont,req,0) == -1) break;
