@@ -72,7 +72,7 @@ int HTTP_work_process(int data_sock,int secure)
 				exit(1);
 
 			work_process(db_pair[0]);
-            signal_server_process(SIGINT);
+			signal_server_parent(SIGINT);
 			exit(1);
 		}
 
@@ -369,7 +369,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							break;
 						}	
 						if(ws){
-							signal_server_process(ssl_proc,SIGHUP);
+							if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 							clear_response(&res);
 							return 0;
 						}
@@ -377,7 +377,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 						return -1;
 					}
 
-					signal_server_process(ssl_proc,SIGHUP);
+					if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 					clear_response(&res);
 					return 0;
 				}else{
@@ -551,7 +551,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 								break;
 							}	
 							if(ws){
-								signal_server_process(ssl_proc,SIGHUP);
+								if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 								clear_response(&res);
 								return 0;
 							}
@@ -559,7 +559,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							return -1;
 						}
 
-						signal_server_process(ssl_proc,SIGHUP);
+						if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 						clear_response(&res);
 						return 0;
 					}else{
@@ -689,7 +689,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 								break;
 							}	
 							if(ws){
-								signal_server_process(ssl_proc,SIGHUP);
+								if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 								clear_response(&res);
 								return 0;
 							}
@@ -697,7 +697,7 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							return -1;
 						}
 
-						signal_server_process(ssl_proc,SIGHUP);
+						if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 						clear_response(&res);
 						return 0;
 					}else{

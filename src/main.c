@@ -171,17 +171,17 @@ int main(int argc, char **argv)
 
 			/* clean what we do not need*/
             close(con);
-            close(ssl_pair[1]);
+            if (ssl_pair[1] > -1) close(ssl_pair[1]);
             if(con80 >= 0) close(con80);
 
 			SSL_work_process(ssl_pair[0],(uint64_t)domains,certificates_path);
             signal_server_parent(SIGINT);
 			exit(1);
 		}
+		close(ssl_pair[0]);
+		ssl_proc = ssl_handle_child;
 	}
 
-    close(ssl_pair[0]);
-	ssl_proc = ssl_handle_child;
 
 	/* 
 	 * setup needed
@@ -239,6 +239,7 @@ int main(int argc, char **argv)
 	if(port_80_handle_child == 0){
         close(con);
         close(http_pair[1]);
+        close(ssl_pair[1]);
         if(con80 > 2) close(con80);
 
 		/*start signal handle for HTTP process*/
