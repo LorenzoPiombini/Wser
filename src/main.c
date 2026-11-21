@@ -181,6 +181,7 @@ int main(int argc, char **argv)
 	}
 
     close(ssl_pair[0]);
+	ssl_proc = ssl_handle_child;
 
 	/* 
 	 * setup needed
