@@ -12,6 +12,7 @@
 #define INDEX_FILE_no_su "www/index.html"
 #define INDEX_FILE "/www/index.html"
 #define AUTO_CERT_RENEWAL ".well-known/acme-challenge/"
+#define ACR_LEN sizeof(AUTO_CERT_RENEWAL)-1
 
 /*TODO: this needs to be implemented as config parameter*/
 #define REDIRECT_DEFAULT_DOMAIN "https://lorenzopiombini.com"

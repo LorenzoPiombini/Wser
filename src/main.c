@@ -29,6 +29,7 @@
 
 char certificates_path[PATH_MAX] = {0};
 char server_log_file[PATH_MAX] = {0};
+char acme_webroot[PATH_MAX] = {0};
 #include <stdint.h>
 
 #define ADDR_MASK 0x0000FFFFFFFFFFFFUL
@@ -95,15 +96,28 @@ int main(int argc, char **argv)
 				close(in);
 				close(out);
 
-				char *nohup_args[] = {"nohup","./wser",NULL};
-				if(execv("/bin/nohup",nohup_args) == -1){
-					printf("could not run the server in the background.\n");
-					exit(1);
+				if(secure){	
+					/*TODO: the domain is a dbl ptr, 
+						need to change this
+					*/
+					char *nohup_args[] = {"nohup","./wser","-sl",*domains,NULL};
+					if(execv("/bin/nohup",nohup_args) == -1){
+						printf("could not run the server in the background.\n");
+						exit(1);
+					}
+					exit(0);
+				}else{
+					char *nohup_args[] = {"nohup","./wser","-l",*domains,NULL};
+					if(execv("/bin/nohup",nohup_args) == -1){
+						printf("could not run the server in the background.\n");
+						exit(1);
+					}
+					exit(0);
+
 				}
-				exit(0);
 			}
 			int nr_domains = (int)GET_DOMS_COUNT(domains);
-			
+
 			printf("running server in the background with %s serving ",secure ? "HTTPS":"HTTP");
 			for(int i=0; i < nr_domains;i++){
 				if(nr_domains - i > 1)

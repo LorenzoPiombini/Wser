@@ -5,6 +5,7 @@
 
 extern char certificates_path[PATH_MAX];
 extern char server_log_file[PATH_MAX];
+extern char acme_webroot[PATH_MAX];
 extern char **domains;
 
 #endif

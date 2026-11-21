@@ -225,6 +225,15 @@ static int no_su_setting()
         return -1;
     }
 
+	FILE *fp = fopen(INDEX_FILE_no_su,"r");
+	if (!fp){
+		fp = fopen(INDEX_FILE_no_su,"w");
+		if (!fp) return 0; /*i don't think is a correct reason to fail the server*/
+		fputs(INDEX_CNT,fp);
+		fclose(fp);
+		return 0;
+	}
+	fclose(fp);
 	return 0;
 }
 
@@ -273,6 +282,14 @@ static int load_wser_config(FILE **config_file)
 		int s = end - marker;
 		strncpy(server_log_file,marker,s);
 	}
+
+	if((marker = strstr(buf,"ACME_WEBROOT"))){
+		marker += strlen("ACME_WEBROOT=");
+		char *end = strchr(marker,'\n'); 
+		if(!end) goto failed;
+		int s = end - marker;
+		strncpy(server_log_file,marker,s);
+	}
 	return 0;
 failed:
 	printf("reading config file failed.");
@@ -301,7 +318,9 @@ static int create_wser_config(FILE **config_file)
 		"# path where the server will look for TLS certificates\n"
 		"CERT_PATH=/etc/letsencrypt/live/\n\n"
 		"# path where the server will write the logs\n"
-		"SERVER_LOG_PATH=.local/logs/server.log\n",
+		"SERVER_LOG_PATH=.local/logs/server.log\n\n"
+		"# path where .well-know will be stored. for cert renewal\n"
+		"#ACME_WEBROOT=?\n\n",
 		fp);	
     fclose(fp);
 	fp = fopen(".wser.conf","r");
