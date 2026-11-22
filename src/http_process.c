@@ -690,8 +690,8 @@ static int is_valid_b64(char *buf)
 
 	int s = (int)strlen(buf);
 	for(int i = 0; i < s; i++){
-		if(!isalpha(buf[i])
-			&& !isdigit(buf[i])){
+		if(!isalpha((unsigned char)buf[i])
+			&& !isdigit((unsigned char)buf[i])){
 				if(buf[i] != '_' 
 					&& buf[i] != '-') return 0;
 		}
