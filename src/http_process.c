@@ -352,9 +352,8 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 					}
 
 					/*check file is correct b64*/
-					char *b64 = &req->resource[strlen(req->resource)-1];
-					while(b64 != &req->resource[0] && *b64 != '/') b64--;
-					b64++;
+	
+					char *b64 = req->resource + ACR_LEN;
 					if(!is_valid_b64(b64)) goto bad_request;
 
 					/*load the file, and send it*/
@@ -687,14 +686,15 @@ bad_request:
 
 static int is_valid_b64(char *buf)
 { 
+	if (!buf || *buf == '\0') return 0;
+
 	int s = (int)strlen(buf);
-	if(s % 4 != 0) return 0;
 	for(int i = 0; i < s; i++){
 		if(!isalpha(buf[i])
 			&& !isdigit(buf[i])){
-				if(buf[i] != '=' 
-					&& buf[i] != '-'
-					&& buf[i] != '_') return 0;
+				if(buf[i] == '=') return 0;
+				if(buf[i] != '_' 
+					&& buf[i] != '-') return 0;
 		}
 	}
 	
