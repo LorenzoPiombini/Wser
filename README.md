@@ -22,7 +22,7 @@ HTTP/1.1 is the default version.
 
 ## Production TLS
 
-See [Certbot automatic renewal for Wser](CERTBOT_AUTOMATIC_RENEWAL.md) for a
+See [Certbot automatic renewal for Wser](documentation/CERTBOT_AUTOMATIC_RENEWAL.md) for a
 systemd-based HTTPS deployment and trusted automatic-renewal setup.
 
 
