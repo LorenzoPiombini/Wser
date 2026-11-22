@@ -315,7 +315,6 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 		case GET:
         case HEAD:
 			if(secure){
-				char wbr_path[PATH_MAX] = {0};
 				if(acme_webroot[0] == '?' || acme_webroot[0] == '\0'){
 					fprintf(stderr,"(%s) acme_webroot is not configured, check .wser.conf\n");	
 					/*send not found response*/
@@ -346,19 +345,13 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 					clear_response(&res);
 					clear_content(&cont);
 					return -1;
-			}else{
-				/*crate the full auto_webroot path*/
-				int i = (int)strlen(acme_webroot);
-				memcpy(wbr_path,acme_webroot,i);
-	
-				wbr_path[i++] = '/';
-				memcpy(&wbr_path[i],AUTO_CERT_RENEWAL,ACR_LEN);
 			}
 
-			if(strncmp(req->resource,wbr_path,ACR_LEN) == 0){
+			if(strncmp(req->resource,AUTO_CERT_RENEWAL,ACR_LEN) == 0){
 				/*load the file, and send it*/
 				int r = 0;
-				if((r = load_resource(req->resource,&cont,0)) == -1){
+				uint32_t opt = 0; 
+				if((r = load_resource(req->resource,&cont,SET_ACME(opt))) == -1){
 					/*send not found response*/
 					if(generate_response(&res,404,&cont,req,0) == -1) break;
 

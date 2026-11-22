@@ -37,11 +37,12 @@ static int ser_array(const char *json,struct Json_token *t,uint8_t *buffer,size_
 static int check_key_in_object(char **allowed,const char *json,struct Json_token *t,int *i,int *seen);
 #endif
 
-
-int load_resource(char *rpath, struct Content *cont, int gzip)
+int load_resource(char *rpath, struct Content *cont, uint32_t option)
 {
 
 	if(!rpath || !cont) return -1;
+
+	if(IS_ACME(option)) goto open_acme;
 
 	char *file_path = map_rpath(rpath);
 	if(!file_path) {
@@ -51,7 +52,14 @@ int load_resource(char *rpath, struct Content *cont, int gzip)
 	}
 
 
-	int fd_parent = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
+	int fd_parent = -1;
+
+open_acme:
+	if(IS_ACME(option))
+		fd_parent = open(acme_webroot,O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
+	else
+		fd_parent = open(getuid() == 0 ? "/www" : "./www",O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
+
 	if(fd_parent == -1){
 		 return -1;
 	}
@@ -93,10 +101,10 @@ int load_resource(char *rpath, struct Content *cont, int gzip)
 				return -1;
 			}
 
-			if(st.st_size > 1024 && gzip){
+			if(st.st_size > 1024 && IS_GZIP(option)){
 				int fd_gz = openat(fd_parent,&gzipped[1],flags);
 				if(fd_gz == -1) break; /*regular file will be used*/ 
-				gzip = GZ_HEADER;
+				option = GZ_HEADER;
 				close(fd);
 				fd = fd_gz;
 			}
@@ -143,7 +151,7 @@ int load_resource(char *rpath, struct Content *cont, int gzip)
 	close(fd);
 	cont->size = length;
 	if(allocated) cont->cnt_dy = buf;
-	if(gzip == GZ_HEADER) return GZ_HEADER;
+	if(option == GZ_HEADER) return GZ_HEADER;
 	return 0;
 }
 
