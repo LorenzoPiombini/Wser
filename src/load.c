@@ -116,6 +116,11 @@ int load_resource(char *rpath, struct Content *cont, uint32_t option)
 		close(fd);
 		return -1;
 	}
+	if(IS_ACME(option) && st.st_size > (1024 * 8)){
+		close(fd);
+		return -1;
+	}
+
 	size_t length = (size_t)st.st_size;
 	char *buf = cont->cnt_st;
 	char *allocated  = NULL;
