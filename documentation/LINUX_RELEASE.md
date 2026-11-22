@@ -7,15 +7,15 @@ and certificates to the administrator.
 
 ## Install by package name
 
-Use the HTTPS base URL and the full signing-key fingerprint supplied by the
-repository owner. The server publishes `wser.asc`, `apt/` and `rpm/` under
-that URL. The examples use `packages.example.org` as a placeholder.
+Wser's chosen package URL is `https://lorenzopiombini.github.io/Wser/packages/`.
+The following commands apply once the maintainer has published the first signed
+snapshot. It contains `wser.asc`, `apt/` and `rpm/`.
 
 Download the public key as an ordinary user and compare its primary fingerprint
 with the owner's fingerprint before installing it.
 
 ```sh
-curl -fSLo wser.asc https://packages.example.org/wser/wser.asc
+curl -fSLo wser.asc https://lorenzopiombini.github.io/Wser/packages/wser.asc
 gpg --show-keys --fingerprint wser.asc
 ```
 
@@ -26,12 +26,12 @@ sudo install -d -m 0755 /etc/apt/keyrings
 sudo install -m 0644 wser.asc /etc/apt/keyrings/wser.asc
 ```
 
-Save the following in `/etc/apt/sources.list.d/wser.sources`, substituting
-the repository's URL. The `./` suite selects the flat APT repository.
+Save the following in `/etc/apt/sources.list.d/wser.sources`. The `./` suite
+selects the flat APT repository.
 
 ```text
 Types: deb
-URIs: https://packages.example.org/wser/apt/
+URIs: https://lorenzopiombini.github.io/Wser/packages/apt/
 Suites: ./
 Architectures: amd64
 Signed-By: /etc/apt/keyrings/wser.asc
@@ -49,13 +49,12 @@ dpkg-query -W wser
 sudo install -m 0644 wser.asc /etc/pki/rpm-gpg/RPM-GPG-KEY-wser
 ```
 
-Save the following in `/etc/yum.repos.d/wser.repo`, substituting the
-repository's URL.
+Save the following in `/etc/yum.repos.d/wser.repo`.
 
 ```ini
 [wser]
 name=Wser
-baseurl=https://packages.example.org/wser/rpm/
+baseurl=https://lorenzopiombini.github.io/Wser/packages/rpm/
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
@@ -68,8 +67,9 @@ rpm -q wser
 ```
 
 APT and DNF check this source for future upgrades. To install a downloaded
-package directly, pass its local path to `sudo apt install ./wser_…_amd64.deb`
-or `sudo dnf install ./wser-….x86_64.rpm`.
+package directly, use its local filename. For v0.1.0 the commands are
+`sudo apt install ./wser_0.1.0-1_amd64.deb` and
+`sudo dnf install ./wser-0.1.0-1.x86_64.rpm`.
 
 ## Run the server
 
@@ -108,9 +108,17 @@ rpmbuild -ta wser-0.1.0.tar.gz
 
 The hosting service only needs to serve static files over HTTPS. On the signing
 machine install GnuPG, `dpkg-dev`, `apt-utils`, `rpm` (including `rpmsign`) and
-`createrepo-c`. Use a release signing key that the publisher can retain for
-future upgrades. The final argument is a new directory under an existing
-parent. Supply the actual paths to the two packages.
+`createrepo-c`. If this is the first release, create the signing key on the
+maintainer's computer, choose a passphrase at the prompt and keep a secure
+backup. Copy the full primary fingerprint from the second command.
+
+```sh
+gpg --quick-generate-key 'Wser package releases' rsa3072 sign 2y
+gpg --list-secret-keys --fingerprint 'Wser package releases'
+```
+
+Set `WSER_SIGNING_FINGERPRINT` to that fingerprint. The final argument is a
+new directory under an existing parent. Supply the paths to both packages.
 
 ```sh
 packaging/build-repo.sh "$WSER_SIGNING_FINGERPRINT" \
@@ -119,7 +127,32 @@ packaging/build-repo.sh "$WSER_SIGNING_FINGERPRINT" \
 ```
 
 The script signs APT's `Release` file, the RPM package and DNF's `repomd.xml`.
-It prints the completed snapshot directory. Publish its contents under one
-stable URL, and distribute the public fingerprint through a trusted channel.
-For upgrades, build the new snapshot separately, then switch the hosted
-directory to the complete snapshot. Keep the signing key on the signing host.
+Only public material is in the completed snapshot. Keep the private signing
+key on the signing host. Distribute its public fingerprint to users through
+a trusted channel.
+
+### Publish to GitHub Pages
+
+In the GitHub repository settings, choose **Pages → Deploy from a branch →
+gh-pages → / (root)**. From a separate checkout of `gh-pages`, copy the
+contents of the signed snapshot into `packages/` and publish in one commit.
+The `downloads/` directory holds the original release artifacts.
+
+```sh
+mkdir -p packages
+cp -a /path/to/new-snapshot/. packages/
+touch .nojekyll
+git add -- .nojekyll packages/
+git commit -m 'Publish signed Wser package repository'
+git push origin HEAD:gh-pages
+```
+
+After Pages finishes deploying, check that both signed indexes are reachable.
+
+```sh
+curl -fsSI https://lorenzopiombini.github.io/Wser/packages/apt/InRelease
+curl -fsSI https://lorenzopiombini.github.io/Wser/packages/rpm/repodata/repomd.xml.asc
+```
+
+For upgrades, use the same signing key and publish each complete snapshot
+under the same `packages/` path.
