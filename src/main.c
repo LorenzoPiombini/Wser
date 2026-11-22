@@ -278,7 +278,7 @@ int main(int argc, char **argv)
 	
 	int reload_event_fd = -1;
 	if(secure){
-		certificate_reload_fd();
+		reload_event_fd = certificate_reload_fd();
 		if ( reload_event_fd < 0 ||
 				add_socket_to_monitor(reload_event_fd, EPOLLIN) == -1){
 					fprintf(stderr, "(%s): cannot monitor SIGHUP\n",prog);

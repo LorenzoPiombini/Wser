@@ -117,7 +117,9 @@ int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certifica
 		strncpy(&build_path[custom_path_len],"fullchain.pem",chain_len);
 		
 		if(SSL_CTX_use_certificate_chain_file((*ctxs)[i],build_path) <= 0 ) {
-			fprintf(stderr,"error use certificate.\n");
+			   fprintf(stderr,
+            "(%s): cannot load certificate chain '%s'\n",
+            prog, build_path);
 			goto failed;
 		}
 
