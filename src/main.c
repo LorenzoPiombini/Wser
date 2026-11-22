@@ -276,6 +276,16 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
+	int reload_event_fd = -1;
+	if(secure){
+		certificate_reload_fd();
+		if ( reload_event_fd < 0 ||
+				add_socket_to_monitor(reload_event_fd, EPOLLIN) == -1){
+					fprintf(stderr, "(%s): cannot monitor SIGHUP\n",prog);
+					return -1;
+		}
+	}
+
 	if(con80 != -1){
 		if(add_socket_to_monitor(con80, EPOLLIN) == -1) 
 			return -1;
@@ -329,6 +339,20 @@ int main(int argc, char **argv)
 					}
 					msgh.msg_controllen = sizeof(u.buf); // Reset this every time!
 					stop_listening(cli_sock);
+					continue;
+				}else if( events[i].data.fd == reload_event_fd){
+					int requested = consume_certificate_reload();
+					if (requested == -1){
+						fprintf(stderr, "(%s): cannot consume SIGHUP\n",prog);
+						continue;
+					}
+	
+					if (requested){
+						if (!server_child_running(ssl_proc) ||
+								signal_server_process(ssl_proc,SIGHUP) == -1){
+								fprintf(stderr,"(%s): TLS process not avaiable, reload failed\n",prog);
+						}
+					}
 					continue;
 				}
 			}

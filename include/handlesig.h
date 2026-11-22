@@ -10,6 +10,8 @@ extern pid_t ssl_proc;
 extern pid_t db_proc; 
 extern pid_t http_proc;
 
+int certificate_reload_fd(void);
+int consume_certificate_reload(void);
 int handle_sig_main_process();
 int handle_sig_ssl_process();
 int handle_sig_http_process();

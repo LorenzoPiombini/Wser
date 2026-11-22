@@ -50,6 +50,7 @@ static int handle_ssl_steps(struct Connection_data *cd,
 							SSL_CTX **ctx);
 
 
+static int reload_SSL_contexts(char **domains,int active_domains, char *certificates_path, struct SNI_config *config);
 static int sni_callback(SSL *ssl, int *ad, void *args);
 
 int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
@@ -92,6 +93,19 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 		fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
 		signal_server_parent(SIGINT);
 		exit(-1);
+	}
+
+	int reload_event_fd = certificate_reload_fd();
+
+	if (reload_event_fd < 0 ||
+			add_socket_to_monitor(reload_event_fd, EPOLLIN) == -1) {
+		fprintf(stderr,
+				"(%s): cannot monitor certificate reload requests\n",
+				prog);
+
+		stop_monitor();
+		signal_server_parent(SIGINT);
+		return -1;
 	}
 
 	char **d = (char **)(domains & 0x0000FFFFFFFFFFFF);
@@ -143,29 +157,8 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 	for(;;){
 		
 		if((nfds = monitor_events(-1)) == -1) goto teardown_a;
-		if(nfds == MONITOR_INTERRUPTED){
-			if(reload_certificate){
-				reload_certificate = 0;
-				free_SSL_ctxs(&ctxs,active_domains);
-				if(init_SSL(d,active_domains,&ctxs,certificate_path) == -1){
-					fprintf(stderr,"(%s): cannot start SSL context.\n",prog);
-					stop_monitor();
-#ifdef OWN_DB		
-					signal_server_process(db_proc,SIGINT);
-#endif
-					signal_server_parent(SIGINT);
-					exit(-1);
-				}
-	
-				config.ctxs = ctxs;
-				/*register the SNI*/
-				SSL_CTX_set_tlsext_servername_callback(ctxs[0], sni_callback);
-				SSL_CTX_set_tlsext_servername_arg(ctxs[0],&config);
-				continue;
-			}
-			continue;/*you might want to change this to got teardown*/
-		}
-
+		if(nfds == MONITOR_INTERRUPTED) continue;/*you might want to change this to got teardown*/
+		
 		int i;
 		for(i = 0; i < nfds; i++){
 			/* Receive ancillary data; real data is ignored */
@@ -176,6 +169,21 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 						continue;
                     continue;
 				}
+			}else if (events[i].data.fd == reload_event_fd){
+
+				int requested = consume_certificate_reload();
+				if(requested == -1){
+					fprintf(stderr,"(%s): cannot conume SIGHUP\n",prog);
+				} else if(requested
+							 && reload_SSL_contexts(d,
+								active_domains,
+								certificate_path,
+								&config) == -1){
+							fprintf(stderr,
+								"(%s): certificate reload failed; "
+								"keeping previous certificate\n",prog);
+				}
+				continue;
 			}
 
 			cmsgp = CMSG_FIRSTHDR(&msgh);
@@ -641,4 +649,23 @@ static int sni_callback(SSL *ssl, int *ad, void *args)
 	
 	*ad = SSL_AD_UNRECOGNIZED_NAME;
 	return SSL_TLSEXT_ERR_ALERT_FATAL;
+}
+
+static int reload_SSL_contexts(char **domains,int active_domains, char *certificates_path, struct SNI_config *config)
+{
+	SSL_CTX **next = NULL;
+	
+	if (init_SSL(domains, active_domains, &next, certificates_path) == -1) return -1;
+	
+
+	SSL_CTX_set_tlsext_servername_callback(next[0], sni_callback);
+	SSL_CTX_set_tlsext_servername_arg(next[0],config);
+
+
+	SSL_CTX **old = ctxs;
+	ctxs = next;
+	
+	config->ctxs = next;
+	free_SSL_ctxs(&old,	active_domains);
+	return 0;
 }
