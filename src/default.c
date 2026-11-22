@@ -66,77 +66,6 @@ static int su_setting()
         return 0;
 }
 
-#if 0
-	struct stat st;
-	if(stat(DEF_DIR,&st) == -1){
-		if(errno == EACCES){ 
-			if(no_su_setting() == -1) return -1;
-
-		} else if (errno == ENOENT){
-			errno = 0;
-			if(setuid(0) == -1){
-				if(errno == EPERM){
-					/*get the user home path and check/create the defautl folder there*/
-					if(no_su_setting() == -1) return -1;
-					return 0;
-				}
-				return -1;
-			}
-
-
-			/*create the folder*/
-			if(mkdir(DEF_DIR,S_IFDIR | S_IRWXU) == -1){
-				fprintf(stderr,"(%s:)cannot setup default folder.\n",prog);
-				return -1;
-			}
-
-            if(go_to_user_home_dir() == -1) return -1;
-			
-			FILE *cf = NULL;
-			if(create_wser_config(&cf) == -1){
-				fprintf(stderr,"(%s): cannot create config file",prog);	
-				if(chdir(dir) == -1){
-					fprintf(stderr,"(%s): cannot change directory.\n",prog);
-					return -1;
-				}
-				return -1;
-			}
-
-			if(load_wser_config(&cf) == -1){
-				if(chdir(dir) == -1){
-					fprintf(stderr,"(%s): cannot change directory.\n",prog);
-					return -1;
-				}
-				return -1;
-			}
-
-			FILE *fp = fopen(INDEX_FILE,"w");
-			if(!fp){
-		   		fprintf(stderr,"(%s): cannot create sample home page",prog);	
-				return -1;
-			}
-			fputs(INDEX_CNT,fp);
-			fclose(fp);
-			return 0;
-		}
-	}
-
-    go_to_user_home_dir();
-    FILE *cf = NULL;
-    if(load_wser_config(&cf) == -1){
-        if(chdir(dir) == -1){
-            fprintf(stderr,"(%s): cannot change directory.\n",prog);
-            return -1;
-        }
-        return -1;
-    }
-	
-	if(S_ISDIR(st.st_mode))return 0;
-
-	return -1;
-}
-
-#endif
 static int go_to_user_home_dir()
 {
 	errno = 0;
@@ -241,68 +170,42 @@ static int no_su_setting()
 static int load_wser_config(FILE **config_file)
 {
 
-	char buf[MAX_FILE_ON_STACK];
-	memset(buf,0,MAX_FILE_ON_STACK);
+	char line[250] = {0};
 	if(!(*config_file)){ 
         *config_file = fopen(".wser.conf","r");
         if(!(*config_file)) 
             if(create_wser_config(config_file) == -1) return -1;
     }
 
-	if(fseek(*config_file,0,SEEK_END) == -1) goto failed;
-	
-	long long size = ftell(*config_file);
-	rewind(*config_file);
+	while(fgets(line,sizeof(line)-1,*config_file)){
+		if(line[249] != '\0') goto failed;
 
-	if(size  + 1 > MAX_FILE_ON_STACK) goto failed;
+		char *p = line;
 
-	
-	size_t r = fread(buf,size,1,*config_file);
-	if(r < (size_t)size){
-		if(ferror(*config_file)) goto failed;
+		while(*p != '\0' && (*p == ' ' || *p == '\t')) p++;
+		if( *p == '\n' || *p == '#' || *p == '\0') continue;
+		
+		if(strncmp(p,"CERT_PATH=",10) == 0){
+			int i = 0;
+			p = p + strlen("CERT_PATH=");
+			while(*p != '\n') certificates_path[i++] = *p++;
+		}
+
+		if(strncmp(p,"ACME_WEBROOT=",13) == 0){
+			int i = 0;
+			p = p + strlen("ACME_WEBROOT=");
+			while(*p != '\n') acme_webroot[i++] = *p++;
+		}
+
+		if(strncmp(p,"SERVER_LOG_PATH=",16) == 0){
+			int i = 0;
+			p = p + strlen("SERVER_LOG_PATH=");
+			while(*p != '\n') server_log_file[i++] = *p++;
+		}
 	}
-			
+
 	fclose(*config_file);
 	*config_file = NULL;
-	
-	char *beg = buf;
-	/*load the paramater*/
-	char *marker= NULL;
-	if((marker = strstr(buf,"CERT_PATH"))){
-		char *start = marker;
-		while(start != beg && *start != '\n') start--;
-		if(*start != '#' && start != beg){
-			marker += strlen("CERT_PATH=");
-			char *end = strchr(marker,'\n'); 
-			if(!end) goto failed;
-			int s = end - marker;
-			strncpy(certificates_path,marker,s);
-		}
-	}
-
-	if((marker = strstr(buf,"SERVER_LOG_PATH"))){
-		char *start = marker;
-		while(start != beg && *start != '\n') start--;
-		if(*start != '#' && start != beg){
-			marker += strlen("SERVER_LOG_PATH=");
-			char *end = strchr(marker,'\n'); 
-			if(!end) goto failed;
-			int s = end - marker;
-			strncpy(server_log_file,marker,s);
-		}
-	}
-
-	if((marker = strstr(buf,"ACME_WEBROOT"))){
-		char *start = marker;
-		while(start != beg && *start != '\n') start--;
-		if(*start != '#' && start != beg){
-		marker += strlen("ACME_WEBROOT=");
-		char *end = strchr(marker,'\n'); 
-		if(!end) goto failed;
-		int s = end - marker;
-		strncpy(acme_webroot,marker,s);
-		}
-	}
 	return 0;
 failed:
 	printf("reading config file failed.");

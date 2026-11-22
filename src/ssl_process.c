@@ -58,7 +58,7 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
     int db_pair[2] = {-1,-1};
 #ifdef OWN_DB
     if ( unix_pair(db_pair) == -1){
-        fprintf(stderr,"(%s): failed to start db process, socketpair() failed %s:%d\n"prog,__FILE__,__LINE__);
+        fprintf(stderr,"(%s): failed to start db process, socketpair() failed %s:%d\n",prog,__FILE__,__LINE__);
         signal_server_parent(SIGINT);
         return -1;
     }
@@ -78,7 +78,7 @@ int SSL_work_process(int data_sock, uint64_t domains,char *certificate_path)
 		if(handle_sig_db_process() == -1)
 			exit(1);
 
-		work_process(work_proc_data_sock);
+		work_process(db_pair[0]);
         signal_server_parent(SIGINT);
         exit(1);
 	}
