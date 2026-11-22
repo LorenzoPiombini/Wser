@@ -42,7 +42,6 @@ int load_resource(char *rpath, struct Content *cont, uint32_t option)
 
 	if(!rpath || !cont) return -1;
 
-	if(IS_ACME(option)) goto open_acme;
 
 	char *file_path = map_rpath(rpath);
 	if(!file_path) {
@@ -53,8 +52,6 @@ int load_resource(char *rpath, struct Content *cont, uint32_t option)
 
 
 	int fd_parent = -1;
-
-open_acme:
 	if(IS_ACME(option))
 		fd_parent = open(acme_webroot,O_RDONLY | O_DIRECTORY | O_CLOEXEC |  O_NOFOLLOW);
 	else
