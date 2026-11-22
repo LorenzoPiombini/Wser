@@ -1,0 +1,13 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/buildflags.mk
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	dh_auto_build -- wser CPPFLAGS="$(CPPFLAGS)" CFLAGS="-Iinclude -std=gnu17 $(CFLAGS)" RELEASE_CFLAGS= LDFLAGS="$(LDFLAGS)"
+
+override_dh_auto_install:
+	$(MAKE) install-server PREFIX=/usr DESTDIR="$(CURDIR)/debian/wser"

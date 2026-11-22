@@ -1,0 +1,15 @@
+Source: wser
+Section: httpd
+Priority: optional
+Maintainer: Lorenzo Piombini <LorenzoPiombini@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), libssl-dev (>= 3.0)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/LorenzoPiombini/Wser
+
+Package: wser
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: HTTP/1.1 web server for Linux with TLS support
+ Wser serves static files using epoll and OpenSSL. It supports HTTP and
+ HTTPS listeners and can serve Certbot's HTTP-01 challenges.
