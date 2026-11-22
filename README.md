@@ -20,5 +20,10 @@ upon first execution wser will place a very basic index.html file inside ./www
 ---
 HTTP/1.1 is the default version.
 
+## Production TLS
+
+See [Certbot automatic renewal for Wser](CERTBOT_AUTOMATIC_RENEWAL.md) for a
+systemd-based HTTPS deployment and trusted automatic-renewal setup.
+
 
 
