@@ -50,7 +50,6 @@ static int su_setting()
 				fprintf(stderr,"(%s:)cannot setup default folder.\n",prog);
 				return -1;
 			}
-
 			
 			FILE *fp = fopen(INDEX_FILE,"w");
 			if(!fp){
@@ -154,6 +153,7 @@ static int no_su_setting()
         return -1;
     }
 
+	
 	FILE *fp = fopen(INDEX_FILE_no_su,"r");
 	if (!fp){
 		fp = fopen(INDEX_FILE_no_su,"w");
@@ -178,8 +178,9 @@ static int load_wser_config(FILE **config_file)
 
 	char line[250] = {0};
 	while(fgets(line,sizeof(line),*config_file)){
-		if(sizeof(line) - 1 == 249
-			&& line[249] != '\n' ) goto failed;
+		size_t s = strlen(line);
+		if(sizeof(line) - 1 == s
+			&& line[s - 1] != '\n' ) goto failed;
 
 		char *p = line;
 
