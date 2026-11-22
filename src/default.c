@@ -177,7 +177,7 @@ static int load_wser_config(FILE **config_file)
             if(create_wser_config(config_file) == -1) return -1;
     }
 
-	while(fgets(line,sizeof(line)-1,*config_file)){
+	while(fgets(line,sizeof(line),*config_file)){
 		if(line[249] != '\0') goto failed;
 
 		char *p = line;
@@ -185,22 +185,25 @@ static int load_wser_config(FILE **config_file)
 		while(*p != '\0' && (*p == ' ' || *p == '\t')) p++;
 		if( *p == '\n' || *p == '#' || *p == '\0') continue;
 		
-		if(strncmp(p,"CERT_PATH=",10) == 0){
+		if(strncmp(p,"CERT_PATH=",10) == 0
+			&& certificates_path[0] == '\0'){
 			int i = 0;
 			p = p + strlen("CERT_PATH=");
-			while(*p != '\n') certificates_path[i++] = *p++;
+			while(*p && (*p != '\n' || *p != '\r')) certificates_path[i++] = *p++;
 		}
 
-		if(strncmp(p,"ACME_WEBROOT=",13) == 0){
+		if(strncmp(p,"ACME_WEBROOT=",13) == 0
+			&& acme_webroot[0] == '\0'){
 			int i = 0;
 			p = p + strlen("ACME_WEBROOT=");
-			while(*p != '\n') acme_webroot[i++] = *p++;
+			while(*p && (*p != '\n' || *p != '\r')) acme_webroot[i++] = *p++;
 		}
 
-		if(strncmp(p,"SERVER_LOG_PATH=",16) == 0){
+		if(strncmp(p,"SERVER_LOG_PATH=",16) == 0
+			&& server_log_file[0] == '\0'){
 			int i = 0;
 			p = p + strlen("SERVER_LOG_PATH=");
-			while(*p != '\n') server_log_file[i++] = *p++;
+			while(*p && (*p != '\n' || *p != '\r')) server_log_file[i++] = *p++;
 		}
 	}
 
