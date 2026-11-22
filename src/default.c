@@ -191,7 +191,7 @@ static int load_wser_config(FILE **config_file)
 			&& certificates_path[0] == '\0'){
 			int i = 0;
 			p = p + strlen("CERT_PATH=");
-			while(*p && (*p != '\n' || *p != '\r')) certificates_path[i++] = *p++;
+			while(*p && (*p != '\n' && *p != '\r')) certificates_path[i++] = *p++;
 			continue;
 		}
 
