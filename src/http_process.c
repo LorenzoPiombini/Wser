@@ -692,7 +692,6 @@ static int is_valid_b64(char *buf)
 	for(int i = 0; i < s; i++){
 		if(!isalpha(buf[i])
 			&& !isdigit(buf[i])){
-				if(buf[i] == '=') return 0;
 				if(buf[i] != '_' 
 					&& buf[i] != '-') return 0;
 		}
