@@ -411,15 +411,12 @@ static int process_request(struct Request *req, int cli_sock,int result_of_http_
 							break;
 						}	
 						if(ws){
-							if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 							clear_response(&res);
 							return 0;
 						}
 						clear_response(&res);
 						return -1;
 					}
-
-					if (ssl_proc > 1) signal_server_process(ssl_proc,SIGHUP);
 					clear_response(&res);
 					return 0;
 				}else{
