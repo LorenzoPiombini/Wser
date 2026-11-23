@@ -12,6 +12,7 @@ pid_t ssl_proc = -1;
 pid_t http_proc = -1;
 static pid_t server_parent = -1;
 static int reload_fd = -1;
+static int configure_sighup(int reload_enabled);
 
 static int configure_sighup(int reload_enabled)
 {
