@@ -117,6 +117,7 @@ static int install_handlers(int reload_enabled)
 		this make the children waitable;
 	*/
     act.sa_handler = SIG_DFL;
+    act.sa_flags = SA_NOCLDWAIT;
     if(sigaction(SIGCHLD, &act, NULL)) return -1;
     return 0;
 }
