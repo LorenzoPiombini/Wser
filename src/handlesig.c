@@ -6,7 +6,6 @@
 #include <sys/signalfd.h>
 #include "handlesig.h"
 
-volatile sig_atomic_t reload_certificate = 0;
 pid_t db_proc = -1;
 pid_t ssl_proc = -1;
 pid_t http_proc = -1;
@@ -85,11 +84,6 @@ static void terminate_process(int signo)
     _exit(128 + signo);
 }
 
-static void request_certificate_reload(int signo)
-{
-    (void)signo;
-    reload_certificate = 1;
-}
 
 static int install_handlers(int reload_enabled)
 {
