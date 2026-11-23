@@ -20,6 +20,12 @@ upon first execution wser will place a very basic index.html file inside ./www
 ---
 HTTP/1.1 is the default version.
 
+## Linux packages
+
+Wser has x86-64 packages for Debian, Ubuntu and Fedora. The [Linux package
+guide](documentation/LINUX_RELEASE.md) covers installation with APT or DNF,
+building the packages and signing a package repository.
+
 ## Production TLS
 
 See [Certbot automatic renewal for Wser](documentation/CERTBOT_AUTOMATIC_RENEWAL.md) for a

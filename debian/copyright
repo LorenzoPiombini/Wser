@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Wser
+Source: https://github.com/LorenzoPiombini/Wser
+
+Files: *
+Copyright: Lorenzo Piombini and contributors
+License: Apache-2.0
+ The full license text is included in LICENSE in the upstream source.
+ On Debian systems it is also available in /usr/share/common-licenses/Apache-2.0.

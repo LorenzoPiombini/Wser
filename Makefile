@@ -1,6 +1,9 @@
 .DEFAULT_GOAL := wser 
 
-.PHONY: debug clean
+.PHONY: debug clean install-server
+
+PREFIX ?= /usr/local
+bindir ?= $(PREFIX)/bin
 
 DISTRO := $(shell . /etc/os-release && echo $$ID)
 
@@ -61,7 +64,10 @@ clean:
 
 # Normal web server
 wser: $(WSER_OBJ)
-	gcc -o $@ $^ $(RELEASE_CFLAGS) $(SECURITY_FLAGS) $(COMMON_LIBS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(RELEASE_CFLAGS) $(SECURITY_FLAGS) $(COMMON_LIBS)
+
+install-server: wser
+	install -D -m 0755 wser "$(DESTDIR)$(bindir)/wser"
 
 # web server with database 
 db: $(DB_OBJ)
@@ -82,7 +88,7 @@ ez-debug: $(EZ_DEBUG_OBJ)
 
 obj/wser/%.o : src/%.c
 	@mkdir -p $(@D)
-	gcc  $(CFLAGS) $(RELEASE_CFLAGS)  -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(RELEASE_CFLAGS) -c $< -o $@
 
 obj/ez/%.o: src/%.c
 	@mkdir -p $(@D)

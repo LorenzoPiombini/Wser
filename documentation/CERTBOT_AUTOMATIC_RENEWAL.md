@@ -285,14 +285,16 @@ Never print or paste the private key itself.
 
 ## 6. Configure the systemd service
 
-Install the Wser binary as a root-owned executable:
+The Linux package installs `/usr/bin/wser`. For a manual build, install the
+binary as a root-owned executable:
 
 ```bash
 install -o root -g root -m 0755 ./wser /usr/local/bin/wser
 ```
 
-Create `/etc/systemd/system/wser.service` after replacing
-`YOUR_DOMAIN_HERE`:
+Create `/etc/systemd/system/wser.service` after replacing `YOUR_DOMAIN_HERE`.
+For a package installation, set `ExecStart=/usr/bin/wser -sl YOUR_DOMAIN_HERE`
+in the unit below.
 
 ```ini
 [Unit]

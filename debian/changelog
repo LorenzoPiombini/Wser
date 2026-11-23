@@ -1,0 +1,5 @@
+wser (0.1.0-1) unstable; urgency=medium
+
+  * First upstream binary package of the standalone web server.
+
+ -- Lorenzo Piombini <LorenzoPiombini@users.noreply.github.com>  Sun, 22 Nov 2026 00:00:00 +0000
