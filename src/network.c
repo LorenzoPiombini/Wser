@@ -886,6 +886,49 @@ int SSL_client_config(){
 	return 0;
 }
 
+int connect_tcp(char *host, char *port, int opt)
+{
+
+	/*get addr info*/
+	int rsl = 0;
+	struct addrinfo hints = {0};
+	struct addrinfo *result;
+
+	hints.ai_family = AF_UNSPEC; /* allow IPv4 and IPv6*/
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = 0;
+	hints.ai_protocol = 0;
+
+	if((rsl = getaddrinfo(host,port, &hints,&result)) != 0){
+		fprintf(stderr, "(%s): getaddrinfo: %s\n",prog, gai_strerror(rsl));
+		return -1;
+	}
+
+	int  sock_fd = -1;
+	struct addrinfo *rp;
+	for( rp = result; rp != NULL; rp = rp->ai_next){
+		if((sock_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1) continue;
+		if(connect(sock_fd,rp->ai_addr,rp->ai_addrlen) != -1) break;
+		close(sock_fd);
+	}
+
+	if(!rp) {
+		fprintf(stderr,"(%s): could not connect to '%s'.\n",prog,host);
+		freeaddrinfo(result);
+		return -1;
+	}
+	freeaddrinfo(result);
+
+	if (opt == SOCK_NONBLOCK) {
+		if(fcntl(sock_fd,F_SETFD,O_NONBLOCK) == -1){
+			close(sock_fd);
+			return -1;
+		}
+	}
+
+	return sock_fd;	
+}
+
 int perform_http_request(char *URL, char *req, char **body)
 {
 	/*process the url*/
@@ -917,40 +960,11 @@ int perform_http_request(char *URL, char *req, char **body)
 		}
 	}
 
-	/*get addr info*/
-	int rsl = 0;
-	struct addrinfo hints = {0};
-	struct addrinfo *result;
 
-	hints.ai_family = AF_UNSPEC; /* allow IPv4 and IPv6*/
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = 0;
-	hints.ai_protocol = 0;
-
-	if((rsl = getaddrinfo(url.host,url.protocol, &hints,&result)) != 0){
-		fprintf(stderr, "(%s): getaddrinfo: %s\n",prog, gai_strerror(rsl));
+	int  sock_fd = connect_tcp(url.host,url.protocol,SOCK_NONBLOCK);
+	if (sock_fd == -1) {
 		return -1;
-	}
-
-	int  sock_fd = -1;
-	struct addrinfo *rp;
-	for( rp = result; rp != NULL; rp = rp->ai_next){
-		if((sock_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1) continue;
-		if(connect(sock_fd,rp->ai_addr,rp->ai_addrlen) != -1) break;
-		close(sock_fd);
-	}
-
-	freeaddrinfo(result);
-
-	if(fcntl(sock_fd,F_SETFD,O_NONBLOCK) == -1){
-		close(sock_fd);
-		return -1;
-	}
-
-	if(!rp) {
-		fprintf(stderr,"(%s): could not connect to '%s'.\n",prog,URL);
-		return -1;
-	}
+	} 
 
 	if(ssl_client){
 		if(!SSL_set_fd(ssl_client,sock_fd)){
