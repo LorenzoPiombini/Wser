@@ -53,7 +53,6 @@ obj/%.o: src/%.c
 	gcc $(CFLAGS) -fPIC -c $< -o $@
 
 
-
 default: $(TARGET)
 	
 clean: 
