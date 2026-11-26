@@ -42,6 +42,7 @@ SSL *ssl_client = NULL;
 #define DNS_SERVER "8.8.8.8"
 
 static char prog[] = "wser";
+
 static int SSL_client_setup(SSL_CTX **ctx_client);
 static int handle_client_IO(SSL *ssl, int ret);
 static int wait_for_activity(SSL *ssl, int w_r);
@@ -49,6 +50,11 @@ static long read_hex_for_transfer_encoding(char *, long *);
 static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
 static void debugf(char *fmt);
+
+static int send_all(int fd, char *buf, int len);
+static int recv_all(int fd, char *buf, int len);
+static int connect_SOCK5(int fd, unsigned char *host,unsigned short port);
+
 static void format_domain_for_query(char *domain, uint8_t *formatted_domain);
 static char *convert_query_format_domain_to_string(uint8_t* formatted_domain);
 
@@ -59,7 +65,7 @@ struct Connection_data cds[MAX_CON_DAT_ARR] = {0};
 
 int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certificates_path){
 	long opts;
-	/*certificates_path is initialized to 0 in default.c
+	/*certificates_path is initialized to 0 in main.c
 		certificates_path is already bounded to PATH_MAX
 		so we are good*/
 	int base_path_len = (int)strlen(certificates_path);
@@ -886,6 +892,81 @@ int SSL_client_config(){
 	return 0;
 }
 
+static int connect_SOCK5(int fd, unsigned char *host,unsigned short port)
+{
+
+	int buffer_size = 3 + 7 + 255; /*hello + request*/
+	unsigned char buff[buffer_size] = {0};
+	int i = 0;
+	/*hello*/
+	buff[i++] = 0x05;
+	buff[i++] = 0x01;
+	buff[i++] = 0x00;
+
+	/*connect*/
+	buff[i++] = 0x05;
+	buff[i++] = 0x01;
+	buff[i++] = 0x00;
+	buff[i++] = 0x03;
+
+	size_t s = strlen(host);
+	buff[i++] = (unsigned char) s; 
+	memcpy(&buff[i],host,s);
+	i += (int)s;
+	buff[i++] = port >> 8;
+	buff[i++] = port & 0x00FF;
+	
+	if (send_all(fd,buff,i) == -1) return -1;
+
+	memset(buff,0,buffer_size);
+	if (recv_all(fd,buff,2) == -1) return -1;
+
+	if (buff[0] != 0x05){
+		fprintf(stderr,"(%s): proxy '%s' does not support SOCK5\n",prog,host);
+		return -1;
+	}
+
+	if (buff[1] != 0x00) {
+		fprintf(stderr,"(%s): proxy '%s' does not support no-auth\n",prog,host);
+		return -1;
+	}
+	
+	
+	memset(buff,0,2);
+
+	if (recv_all(fd,buff,4) == -1) return -1;
+	
+	if (buff[1] != 0x00){
+		fprintf(stderr,"(%s): SOCK5 CONNECT to '%s:%u' failed with code 0x%02x\n",prog,host,port,buff[1]);
+		return -1;
+	}
+	
+
+	size_t addr_len = 0;
+	switch(buff[3]){
+	default : return -1;
+	case 0x01: addr_len = 4; break;
+	case 0x04: addr_len = 16; break;
+	case 0x03: 
+	{
+		memset(buff,0,4);	
+		if(recv_all(fd,buff,1) == -1) return -1;
+	
+		addr_len = (size_t)buff[0];i
+		break;
+	}
+	}
+	
+	memset(buff,0,4);	
+
+	/* 	this read is just to consume the bytes
+		maybe in the future we can log this data
+	*/
+	if (recv_all(fd,addr_len + 2) == -1) return -1;
+	return 0;	
+}
+
+
 int connect_tcp(char *host, char *port, int opt)
 {
 
@@ -1619,4 +1700,60 @@ static void debugf(char *fmt)
 	}
 	fmt = start;
 	printf("\n====================\n");
+}
+
+static int send_all(int fd, char *buf, int len)
+{
+	ssize_t writable = (ssize_t) len;
+	ssize_t i = 0;
+	while( writable > 0){
+		ssize_t r = write(fd,&buf[i],(size_t)writable);
+		if (r <= 0) return -1;
+		i += r;
+		writable -= r;
+	}
+	return 0;
+}
+
+static int recv_all(int fd, char *buf, int len)
+{
+	ssize_t readable = (ssize_t) len;
+	ssize_t i = 0;
+	while ( readable > 0){
+		ssize_t r = read(fd,&buf[i],(size_t)readable);
+		if ( r <= 0) return -1;
+		i += r;
+		readable -= r;
+	}
+
+	return 0;	
+}
+
+static int split_host_port(char* hostp)
+{
+	size_t s = strlen(hostp);
+	char *end = memchr(hostp,':',s);
+
+		
+
+}
+int socket_chains(char **proxies)
+{
+	
+	// first proxy we use connect_tcp
+	// first proxy will know your ip address
+	
+	if (!proxies) return -1;
+
+	struct host = {0};
+	split_host_port(*proxies,&host);
+
+	int sock_fd connect_tcp	
+	
+	
+	
+		
+	
+
+
 }

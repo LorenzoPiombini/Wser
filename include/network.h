@@ -184,4 +184,5 @@ int parse_URL(char *URL, struct Url *url);
 int req_builder(int method, char *urlstr, char *format_str, char *req, int length,int mode);
 void SSL_client_close();
 int  SSL_client_config();
+int socket_chains(char **proxies);
 #endif
