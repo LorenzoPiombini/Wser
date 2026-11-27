@@ -51,9 +51,10 @@ static void clean_CRNL(char *str);
 static void clean_garbage(char *str);
 static void debugf(char *fmt);
 
-static int send_all(int fd, char *buf, int len);
-static int recv_all(int fd, char *buf, int len);
+static int send_all(int fd, unsigned char *buf, int len);
+static int recv_all(int fd,unsigned char *buf, int len);
 static int connect_SOCK5(int fd, unsigned char *host,unsigned short port);
+static int split_host_port(char* hostp, struct host *h);
 
 static void format_domain_for_query(char *domain, uint8_t *formatted_domain);
 static char *convert_query_format_domain_to_string(uint8_t* formatted_domain);
@@ -352,7 +353,7 @@ con_to_sock:
 
 static char *convert_query_format_domain_to_string(uint8_t* formatted_domain)
 {
-	char *p = formatted_domain;	
+	char *p = (char*)formatted_domain;	
 	char *dom = malloc(255);
 	if(!dom)
 		return NULL;
@@ -896,7 +897,8 @@ static int connect_SOCK5(int fd, unsigned char *host,unsigned short port)
 {
 
 	int buffer_size = 3 + 7 + 255; /*hello + request*/
-	unsigned char buff[buffer_size] = {0};
+	unsigned char buff[buffer_size];
+	memset(buff,0,buffer_size);
 	int i = 0;
 	/*hello*/
 	buff[i++] = 0x05;
@@ -907,12 +909,22 @@ static int connect_SOCK5(int fd, unsigned char *host,unsigned short port)
 	buff[i++] = 0x05;
 	buff[i++] = 0x01;
 	buff[i++] = 0x00;
-	buff[i++] = 0x03;
 
-	size_t s = strlen(host);
-	buff[i++] = (unsigned char) s; 
-	memcpy(&buff[i],host,s);
-	i += (int)s;
+	if (inet_pton(AF_INET, host, &buff[i + 1]) == 1){
+		buff[i++] = 0x01;
+		i += 4;
+	} else if (inet_pton(AF_INET6, host, &buff[i + 1]) == 1){
+		buff[i++] = 0x04;
+		i += 4;
+	} else {
+		size_t s = strlen((char*)host);
+		if (s > 255) return -1;
+		buff[i++] = 0x03;
+		buff[i++] = (unsigned char) s; 
+		memcpy(&buff[i],host,s);
+		i += (int)s;
+	}
+
 	buff[i++] = port >> 8;
 	buff[i++] = port & 0x00FF;
 	
@@ -952,7 +964,7 @@ static int connect_SOCK5(int fd, unsigned char *host,unsigned short port)
 		memset(buff,0,4);	
 		if(recv_all(fd,buff,1) == -1) return -1;
 	
-		addr_len = (size_t)buff[0];i
+		addr_len = (size_t)buff[0];
 		break;
 	}
 	}
@@ -962,7 +974,7 @@ static int connect_SOCK5(int fd, unsigned char *host,unsigned short port)
 	/* 	this read is just to consume the bytes
 		maybe in the future we can log this data
 	*/
-	if (recv_all(fd,addr_len + 2) == -1) return -1;
+	if (recv_all(fd,buff,(int)(addr_len + 2)) == -1) return -1;
 	return 0;	
 }
 
@@ -976,7 +988,7 @@ int connect_tcp(char *host, char *port, int opt)
 	struct addrinfo *result;
 
 	hints.ai_family = AF_UNSPEC; /* allow IPv4 and IPv6*/
-	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_socktype =  SOCK_STREAM;
 	hints.ai_flags = 0;
 	hints.ai_protocol = 0;
 
@@ -988,7 +1000,11 @@ int connect_tcp(char *host, char *port, int opt)
 	int  sock_fd = -1;
 	struct addrinfo *rp;
 	for( rp = result; rp != NULL; rp = rp->ai_next){
-		if((sock_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1) continue;
+		if((sock_fd = socket(	rp->ai_family, 
+								rp->ai_socktype,
+							 	rp->ai_protocol
+							)) == -1) continue;
+
 		if(connect(sock_fd,rp->ai_addr,rp->ai_addrlen) != -1) break;
 		close(sock_fd);
 	}
@@ -1000,13 +1016,12 @@ int connect_tcp(char *host, char *port, int opt)
 	}
 	freeaddrinfo(result);
 
-	if (opt == SOCK_NONBLOCK) {
-		if(fcntl(sock_fd,F_SETFD,O_NONBLOCK) == -1){
+	if (opt == SOCK_NONBLOCK){
+		if (fcntl(sock_fd, F_SETFL, SOCK_NONBLOCK) == -1){
 			close(sock_fd);
 			return -1;
 		}
 	}
-
 	return sock_fd;	
 }
 
@@ -1465,7 +1480,8 @@ int perform_http_request(char *URL, char *req, char **body)
 			close(sock_fd);
 			return -1;
 		}
-		if((bread = read(sock_fd,buff,MAX_BUF_SIZE)) == -1){
+		ssize_t b;
+		if((b = read(sock_fd,buff,MAX_BUF_SIZE)) == -1){
 			fprintf(stderr,"(%s): cannot read from '%s'.\n",prog,URL);
 			close(sock_fd);
 			return -1;
@@ -1702,10 +1718,11 @@ static void debugf(char *fmt)
 	printf("\n====================\n");
 }
 
-static int send_all(int fd, char *buf, int len)
+static int send_all(int fd,unsigned char *buf, int len)
 {
 	ssize_t writable = (ssize_t) len;
 	ssize_t i = 0;
+	errno = 0;
 	while( writable > 0){
 		ssize_t r = write(fd,&buf[i],(size_t)writable);
 		if (r <= 0) return -1;
@@ -1715,13 +1732,13 @@ static int send_all(int fd, char *buf, int len)
 	return 0;
 }
 
-static int recv_all(int fd, char *buf, int len)
+static int recv_all(int fd, unsigned char *buf, int len)
 {
 	ssize_t readable = (ssize_t) len;
 	ssize_t i = 0;
 	while ( readable > 0){
 		ssize_t r = read(fd,&buf[i],(size_t)readable);
-		if ( r <= 0) return -1;
+		if (r <= 0) return -1;
 		i += r;
 		readable -= r;
 	}
@@ -1729,31 +1746,81 @@ static int recv_all(int fd, char *buf, int len)
 	return 0;	
 }
 
-static int split_host_port(char* hostp)
+/*it does not support ipv6 for now*/
+static int split_host_port(char* hostp, struct host *h)
 {
 	size_t s = strlen(hostp);
 	char *end = memchr(hostp,':',s);
-
-		
-
-}
-int socket_chains(char **proxies)
-{
+	if (!end) return -1;
 	
+	
+	int size = end++ - hostp;	
+	int alpha = 0, num = 0;
+	for(int i = 0; i < size; i++) {
+ 		if (hostp[i] == '.' 
+			|| hostp[i] == '-' ) continue;  
+		if (hostp[i] >= 0x41 && hostp[i] <= 0x5A
+			&& hostp[i] >= 0x61 && hostp[i] <= 0x7A) {
+			alpha++;
+			continue;
+		}
+		if (hostp[i] >= 0x30 && hostp[i] <=0x39 ) {
+			num++;
+			continue;
+		}
+		/*hostp[i] is an invalid char */
+		return -1;
+	}
+	if (alpha == 0){
+		 h->dom_type = IP4_ADDR;
+		/*NOTE: you need to convert to number ?*/
+	} else {
+		h->dom_type = DOMAIN_ADDR;
+	}
+
+	memcpy(h->dom,hostp,size);	
+	memcpy(h->port,end,s - (size_t)(end - hostp));
+
+	return 0;
+}
+
+int socket_chains(char **proxies, int opt)
+{
 	// first proxy we use connect_tcp
 	// first proxy will know your ip address
 	
 	if (!proxies) return -1;
 
-	struct host = {0};
-	split_host_port(*proxies,&host);
+	struct host h = {0};
+	if (split_host_port(*proxies,&h) == -1) return -1;
 
-	int sock_fd connect_tcp	
+	int sock_fd  = connect_tcp(h.dom,h.port,opt);
+	if (sock_fd == -1){
+		fprintf(stderr,"(%s): cannot hop to the first proxy\n",prog);
+		return -1;
+	}
 	
-	
-	
+	//CHAINs
+	for(; *proxies != NULL; ++proxies){
+
+		memset(&h,0,sizeof(struct host));	
+		if (split_host_port(*proxies,&h) == -1) return -1;
+
+		errno = 0;
+		long long n = strtol(h.port,NULL,10);
+		if (errno == EINVAL) return -1;
 		
-	
+		
+		if (n > 0xFFFF) return -1;
 
+		uint16_t un = (uint16_t)n;
+		if (connect_SOCK5(sock_fd,h.dom,un) == -1){
+			fprintf(stderr,"failed to connect to %s\n",h.dom);
+			continue;
+		}
+		fprintf(stderr,"connected to %s\n",h.dom);
+	}
 
+	/*now the socket is tunneld to the last proxy*/
+	return sock_fd;
 }

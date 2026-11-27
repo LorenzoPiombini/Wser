@@ -161,6 +161,16 @@ struct data{
     }data;
 };
 
+#define IP4_ADDR 0U
+#define DOMAIN_ADDR 1U
+#define PORT_STRING 2U
+#define PORT_NUMBER 3U
+
+struct host{
+	uint8_t dom_type; //selector for domain type
+	char dom[256];
+	char port[6];
+};
 int init_SSL(char** domains, int active_domain, SSL_CTX *** ctxs,char *certificates_path);
 void free_SSL_ctxs(SSL_CTX ***ctxs, int active_domain);
 int wait_for_connections_SSL(int sock_fd,int *cli_sock);
@@ -184,5 +194,5 @@ int parse_URL(char *URL, struct Url *url);
 int req_builder(int method, char *urlstr, char *format_str, char *req, int length,int mode);
 void SSL_client_close();
 int  SSL_client_config();
-int socket_chains(char **proxies);
+int socket_chains(char **proxies, int opt);
 #endif
